@@ -528,6 +528,163 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
 
+    let initThemeDisposable = vscode.commands.registerCommand('flutter-config.initTheme', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+
+        const rootPath = workspaceFolder.uri.fsPath;
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Flutter Config: Initializing Theme configurations...",
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: "Generating App Colors, TextStyles, and ThemeData templates..." });
+            generateThemeFiles(rootPath);
+            updateMainDartForTheme(rootPath);
+
+            vscode.window.showInformationMessage("Successfully initialized Theme configurations (app_colors, app_text_style, app_theme) and registered them in main.dart!");
+        });
+    });
+
+function getKeytoolEnv(): { cmd: string; env?: any } {
+    const defaultRes = { cmd: 'keytool', env: process.env };
+
+    let jdkHome = '';
+    
+    if (process.platform === 'darwin') {
+        const paths = [
+            '/Applications/Android Studio.app/Contents/jbr/Contents/Home',
+            '/Applications/Android Studio.app/Contents/jre/Contents/Home',
+            '/Applications/Android Studio.app/Contents/jre/jdk/Contents/Home'
+        ];
+        for (const p of paths) {
+            if (fs.existsSync(path.join(p, 'bin', 'keytool'))) {
+                jdkHome = p;
+                break;
+            }
+        }
+    } else if (process.platform === 'win32') {
+        const paths = [
+            path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Android', 'Android Studio', 'jbr'),
+            path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Android', 'Android Studio', 'jre'),
+            path.join(process.env.LOCALAPPDATA || '', 'Android', 'Android Studio', 'jbr'),
+            path.join(process.env.LOCALAPPDATA || '', 'Android', 'Android Studio', 'jre')
+        ];
+        for (const p of paths) {
+            const exePath = path.join(p, 'bin', 'keytool.exe');
+            if (fs.existsSync(exePath)) {
+                jdkHome = p;
+                break;
+            }
+        }
+    } else if (process.platform === 'linux') {
+        const paths = [
+            '/opt/android-studio/jbr',
+            '/opt/android-studio/jre',
+            path.join(process.env.HOME || '', 'android-studio', 'jbr'),
+            path.join(process.env.HOME || '', 'android-studio', 'jre')
+        ];
+        for (const p of paths) {
+            if (fs.existsSync(path.join(p, 'bin', 'keytool'))) {
+                jdkHome = p;
+                break;
+            }
+        }
+    }
+
+    if (jdkHome) {
+        const binDir = path.join(jdkHome, 'bin');
+        const keytoolBinary = process.platform === 'win32' ? 'keytool.exe' : 'keytool';
+        const keytoolPath = path.join(binDir, keytoolBinary);
+        
+        const env = { ...process.env };
+        env.JAVA_HOME = jdkHome;
+        env.PATH = `${binDir}${process.platform === 'win32' ? ';' : ':'}${env.PATH || ''}`;
+        
+        return {
+            cmd: `"${keytoolPath}"`,
+            env
+        };
+    }
+
+    return defaultRes;
+}
+
+    let generateSignedAppBundleDisposable = vscode.commands.registerCommand('flutter-config.generateSignedAppBundle', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+
+        const rootPath = workspaceFolder.uri.fsPath;
+
+        // Ask for Keystore password
+        const passwordInput = await vscode.window.showInputBox({
+            prompt: 'Enter password for the new upload keystore',
+            placeHolder: 'e.g. android123',
+            password: true,
+            ignoreFocusOut: true
+        });
+        if (!passwordInput || passwordInput.trim().length < 6) {
+            vscode.window.showErrorMessage('Password must be at least 6 characters.');
+            return;
+        }
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Generating Signed App Bundle...",
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: "Configuring signing properties..." });
+            const configured = configureAndroidSigning(rootPath, passwordInput);
+            if (!configured) return;
+
+            progress.report({ message: "Generating Keystore file..." });
+            const keystorePath = path.join(rootPath, 'android', 'app', 'upload-keystore.jks');
+            if (fs.existsSync(keystorePath)) {
+                fs.unlinkSync(keystorePath);
+            }
+
+            const keytoolResolution = getKeytoolEnv();
+            const keytoolCmd = `${keytoolResolution.cmd} -genkey -v -keystore android/app/upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload -storepass ${passwordInput} -keypass ${passwordInput} -dname "CN=Developer, OU=AppDev, O=Organization, L=City, S=State, C=US"`;
+            let keytoolSuccess = true;
+            let keytoolErrorMsg = '';
+            await new Promise<void>((resolve) => {
+                exec(keytoolCmd, { cwd: rootPath, env: keytoolResolution.env }, (err, stdout, stderr) => {
+                    if (err) {
+                        keytoolSuccess = false;
+                        keytoolErrorMsg = stderr || err.message;
+                    }
+                    resolve();
+                });
+            });
+
+            if (!keytoolSuccess || !fs.existsSync(keystorePath)) {
+                vscode.window.showErrorMessage(`Keystore generation failed: ${keytoolErrorMsg || 'Keystore file was not created. Make sure keytool is installed.'}`);
+                return;
+            }
+
+            progress.report({ message: "Running flutter build appbundle..." });
+            const buildCmd = `flutter build appbundle --release`;
+            await new Promise<void>((resolve) => {
+                exec(buildCmd, { cwd: rootPath, env: keytoolResolution.env }, (err, stdout, stderr) => {
+                    if (err) {
+                        vscode.window.showErrorMessage(`Build failed: ${stderr}`);
+                    } else {
+                        vscode.window.showInformationMessage("Successfully generated signed App Bundle (AAB) inside build/app/outputs/bundle/release/!");
+                    }
+                    resolve();
+                });
+            });
+        });
+    });
+
+
     context.subscriptions.push(initDisposable);
     context.subscriptions.push(createScreenDisposable);
     context.subscriptions.push(generateForExistingScreenDisposable);
@@ -538,6 +695,8 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(initNotificationsDisposable);
     context.subscriptions.push(initConnectivityDisposable);
     context.subscriptions.push(initSecurityDisposable);
+    context.subscriptions.push(initThemeDisposable);
+    context.subscriptions.push(generateSignedAppBundleDisposable);
 }
 
 // Quick Fix Actions Provider
@@ -2628,6 +2787,36 @@ class NoInternetWidget extends StatelessWidget {
 `;
         fs.writeFileSync(widgetPath, widgetTemplate);
     }
+
+    // Generate Connectivity Interceptor for Dio
+    const networkDir = path.join(rootPath, 'lib', 'core', 'network');
+    fs.mkdirSync(networkDir, { recursive: true });
+    const interceptorPath = path.join(networkDir, 'connectivity_interceptor.dart');
+    if (!fs.existsSync(interceptorPath)) {
+        const interceptorTemplate = `import 'package:dio/dio.dart';
+import '../services/connectivity_service.dart';
+
+class ConnectivityInterceptor extends Interceptor {
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+    final isConnected = await ConnectivityService().checkConnection();
+    if (!isConnected) {
+      return handler.reject(
+        DioException(
+          requestOptions: options,
+          error: 'No internet connection detected.',
+          type: DioExceptionType.connectionError,
+        ),
+      );
+    }
+    return handler.next(options);
+  }
+}
+`;
+        fs.writeFileSync(interceptorPath, interceptorTemplate);
+    }
+
+    updateDioForConnectivity(rootPath);
 }
 
 function generateSecurityFiles(rootPath: string) {
@@ -2697,6 +2886,238 @@ class EncryptionService {
     }
 }
 
+function generateThemeFiles(rootPath: string) {
+    const themeDir = path.join(rootPath, 'lib', 'core', 'theme');
+    fs.mkdirSync(themeDir, { recursive: true });
+
+    // 1. App Colors
+    const colorsPath = path.join(themeDir, 'app_colors.dart');
+    if (!fs.existsSync(colorsPath)) {
+        const colorsTemplate = `import 'package:flutter/material.dart';
+
+class AppColors {
+  // Light Theme Colors
+  static const Color primary = Color(0xFF6366F1); // Indigo
+  static const Color primaryLight = Color(0xFFEEF2FF);
+  static const Color secondary = Color(0xFF10B981); // Emerald
+  static const Color background = Color(0xFFF9FAFB);
+  static const Color surface = Colors.white;
+  static const Color textPrimary = Color(0xFF1F2937);
+  static const Color textSecondary = Color(0xFF6B7280);
+  static const Color error = Color(0xFFEF4444);
+
+  // Dark Theme Colors
+  static const Color primaryDark = Color(0xFF818CF8);
+  static const Color backgroundDark = Color(0xFF111827);
+  static const Color surfaceDark = Color(0xFF1F2937);
+  static const Color textPrimaryDark = Color(0xFFF9FAFB);
+  static const Color textSecondaryDark = Color(0xFF9CA3AF);
+}
+`;
+        fs.writeFileSync(colorsPath, colorsTemplate);
+    }
+
+    // 2. App Text Styles
+    const textStylePath = path.join(themeDir, 'app_text_style.dart');
+    if (!fs.existsSync(textStylePath)) {
+        const textStyleTemplate = `import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'app_colors.dart';
+
+class AppTextStyle {
+  static TextStyle get heading1 => TextStyle(
+        fontSize: 24.sp,
+        fontWeight: FontWeight.bold,
+        color: AppColors.textPrimary,
+      );
+
+  static TextStyle get heading2 => TextStyle(
+        fontSize: 20.sp,
+        fontWeight: FontWeight.bold,
+        color: AppColors.textPrimary,
+      );
+
+  static TextStyle get bodyLarge => TextStyle(
+        fontSize: 16.sp,
+        fontWeight: FontWeight.normal,
+        color: AppColors.textPrimary,
+      );
+
+  static TextStyle get bodyMedium => TextStyle(
+        fontSize: 14.sp,
+        fontWeight: FontWeight.normal,
+        color: AppColors.textPrimary,
+      );
+
+  static TextStyle get bodySmall => TextStyle(
+        fontSize: 12.sp,
+        fontWeight: FontWeight.normal,
+        color: AppColors.textSecondary,
+      );
+
+  // Dark styles
+  static TextStyle get heading1Dark => heading1.copyWith(color: AppColors.textPrimaryDark);
+  static TextStyle get heading2Dark => heading2.copyWith(color: AppColors.textPrimaryDark);
+  static TextStyle get bodyLargeDark => bodyLarge.copyWith(color: AppColors.textPrimaryDark);
+  static TextStyle get bodyMediumDark => bodyMedium.copyWith(color: AppColors.textPrimaryDark);
+  static TextStyle get bodySmallDark => bodySmall.copyWith(color: AppColors.textSecondaryDark);
+}
+`;
+        fs.writeFileSync(textStylePath, textStyleTemplate);
+    }
+
+    // 3. App Theme
+    const themePath = path.join(themeDir, 'app_theme.dart');
+    if (!fs.existsSync(themePath)) {
+        const themeTemplate = `import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'app_colors.dart';
+import 'app_text_style.dart';
+
+class AppTheme {
+  static ThemeData get lightTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      primaryColor: AppColors.primary,
+      scaffoldBackgroundColor: AppColors.background,
+      appBarTheme: AppBarTheme(
+        backgroundColor: AppColors.surface,
+        foregroundColor: AppColors.textPrimary,
+        elevation: 0,
+        titleTextStyle: AppTextStyle.heading2,
+      ),
+      cardTheme: CardTheme(
+        color: AppColors.surface,
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          minimumSize: Size(double.infinity, 48.h),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.r),
+          ),
+          textStyle: TextStyle(
+            fontSize: 16.sp,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.surface,
+        contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.r),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.r),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.r),
+          borderSide: const BorderSide(color: AppColors.primary, width: 2),
+        ),
+        labelStyle: AppTextStyle.bodyMedium.copyWith(color: AppColors.textSecondary),
+        hintStyle: AppTextStyle.bodyMedium.copyWith(color: AppColors.textSecondary),
+      ),
+    );
+  }
+
+  static ThemeData get darkTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      primaryColor: AppColors.primaryDark,
+      scaffoldBackgroundColor: AppColors.backgroundDark,
+      appBarTheme: AppBarTheme(
+        backgroundColor: AppColors.surfaceDark,
+        foregroundColor: AppColors.textPrimaryDark,
+        elevation: 0,
+        titleTextStyle: AppTextStyle.heading2Dark,
+      ),
+      cardTheme: CardTheme(
+        color: AppColors.surfaceDark,
+        elevation: 2,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16.r),
+        ),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primaryDark,
+          foregroundColor: Colors.black,
+          minimumSize: Size(double.infinity, 48.h),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12.r),
+          ),
+          textStyle: TextStyle(
+            fontSize: 16.sp,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: AppColors.surfaceDark,
+        contentPadding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 16.h),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.r),
+          borderSide: const BorderSide(color: Color(0xFF374151)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.r),
+          borderSide: const BorderSide(color: Color(0xFF374151)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12.r),
+          borderSide: const BorderSide(color: AppColors.primaryDark, width: 2),
+        ),
+        labelStyle: AppTextStyle.bodyMediumDark.copyWith(color: AppColors.textSecondaryDark),
+        hintStyle: AppTextStyle.bodyMediumDark.copyWith(color: AppColors.textSecondaryDark),
+      ),
+    );
+  }
+}
+`;
+        fs.writeFileSync(themePath, themeTemplate);
+    }
+}
+
+function updateMainDartForTheme(rootPath: string) {
+    const mainPath = path.join(rootPath, 'lib', 'main.dart');
+    if (!fs.existsSync(mainPath)) return;
+
+    let content = fs.readFileSync(mainPath, 'utf8');
+
+    // Add import
+    const importTheme = "import 'core/theme/app_theme.dart';";
+    if (!content.includes('app_theme.dart')) {
+        content = `${importTheme}\n` + content;
+    }
+
+    // Add theme and darkTheme inside MaterialApp.router or MaterialApp
+    const themeSnippet = `          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: ThemeMode.system,`;
+
+    if (!content.includes('theme: AppTheme.lightTheme')) {
+        if (content.includes('MaterialApp.router(')) {
+            content = content.replace('MaterialApp.router(', `MaterialApp.router(\n${themeSnippet}`);
+        } else if (content.includes('MaterialApp(')) {
+            content = content.replace('MaterialApp(', `MaterialApp(\n${themeSnippet}`);
+        }
+    }
+
+    fs.writeFileSync(mainPath, content);
+}
+
 function updateDioForSslPinning(rootPath: string) {
     const dioPath = path.join(rootPath, 'lib', 'core', 'network', 'dio_configuration.dart');
     if (!fs.existsSync(dioPath)) return;
@@ -2740,6 +3161,131 @@ function updateDioForSslPinning(rootPath: string) {
     }
 
     fs.writeFileSync(dioPath, content);
+}
+
+function updateDioForConnectivity(rootPath: string) {
+    const dioPath = path.join(rootPath, 'lib', 'core', 'network', 'dio_configuration.dart');
+    if (!fs.existsSync(dioPath)) return;
+
+    let content = fs.readFileSync(dioPath, 'utf8');
+
+    // Add import
+    const importInterceptor = "import 'connectivity_interceptor.dart';";
+    if (!content.includes('connectivity_interceptor.dart')) {
+        content = `${importInterceptor}\n` + content;
+    }
+
+    // Add interceptor to dio.interceptors
+    const interceptorAdd = "dio.interceptors.add(ConnectivityInterceptor());";
+    if (!content.includes('ConnectivityInterceptor()')) {
+        const target = 'dio.interceptors.add(';
+        const index = content.indexOf(target);
+        if (index !== -1) {
+            content = content.substring(0, index) + `${interceptorAdd}\n    ` + content.substring(index);
+        }
+    }
+
+    fs.writeFileSync(dioPath, content);
+}
+
+function configureAndroidSigning(rootPath: string, keystorePass: string): boolean {
+    const ktsPath = path.join(rootPath, 'android', 'app', 'build.gradle.kts');
+    const groovyPath = path.join(rootPath, 'android', 'app', 'build.gradle');
+
+    // Create key.properties
+    const keyPropsPath = path.join(rootPath, 'android', 'key.properties');
+    const keyPropsContent = `storePassword=${keystorePass}
+keyPassword=${keystorePass}
+keyAlias=upload
+storeFile=upload-keystore.jks
+`;
+    fs.writeFileSync(keyPropsPath, keyPropsContent);
+
+    if (fs.existsSync(ktsPath)) {
+        let content = fs.readFileSync(ktsPath, 'utf8');
+
+        const propertiesLoader = `import java.util.Properties
+import java.io.FileInputStream
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
+`;
+        if (!content.includes('keystoreProperties')) {
+            content = propertiesLoader + content;
+        }
+
+        const signingConfigsBlock = `
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String?
+            keyPassword = keystoreProperties["keyPassword"] as String?
+            storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+            storePassword = keystoreProperties["storePassword"] as String?
+        }
+    }
+`;
+        if (!content.includes('create("release")')) {
+            const androidIndex = content.indexOf('android {');
+            if (androidIndex !== -1) {
+                const nextBrace = content.indexOf('\n', androidIndex);
+                content = content.substring(0, nextBrace + 1) + signingConfigsBlock + content.substring(nextBrace + 1);
+            }
+        }
+
+        content = content.replace(
+            'signingConfig = signingConfigs.getByName("debug")',
+            'signingConfig = signingConfigs.getByName("release")'
+        );
+
+        fs.writeFileSync(ktsPath, content);
+        return true;
+    } else if (fs.existsSync(groovyPath)) {
+        let content = fs.readFileSync(groovyPath, 'utf8');
+
+        const propertiesLoader = `def keystorePropertiesFile = rootProject.file("key.properties")
+def keystoreProperties = new Properties()
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+`;
+        if (!content.includes('keystoreProperties')) {
+            content = propertiesLoader + content;
+        }
+
+        const signingConfigsBlock = `
+    signingConfigs {
+        release {
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
+        }
+    }
+`;
+        if (!content.includes('release {') || !content.includes('keyAlias')) {
+            const androidIndex = content.indexOf('android {');
+            if (androidIndex !== -1) {
+                const nextBrace = content.indexOf('\n', androidIndex);
+                content = content.substring(0, nextBrace + 1) + signingConfigsBlock + content.substring(nextBrace + 1);
+            }
+        }
+
+        content = content.replace(
+            'signingConfig signingConfigs.debug',
+            'signingConfig signingConfigs.release'
+        );
+
+        fs.writeFileSync(groovyPath, content);
+        return true;
+    } else {
+        vscode.window.showErrorMessage('Android Gradle build file not found.');
+        return false;
+    }
 }
 
 async function runBuildRunner(rootPath: string): Promise<void> {

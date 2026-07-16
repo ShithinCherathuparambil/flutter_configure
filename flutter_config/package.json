@@ -2,7 +2,7 @@
   "name": "flutter-config",
   "displayName": "Flutter Config",
   "description": "Standardized MVVM & Clean Architecture generator with BLoC, Riverpod, Injectable, and Freezed",
-  "version": "0.0.20",
+  "version": "0.0.26",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -48,6 +48,14 @@
       {
         "command": "flutter-config.initSecurity",
         "title": "Flutter Config: Initialize Security"
+      },
+      {
+        "command": "flutter-config.initTheme",
+        "title": "Flutter Config: Initialize Theme"
+      },
+      {
+        "command": "flutter-config.generateSignedAppBundle",
+        "title": "Flutter Config: Generate Signed App Bundle"
       }
     ],
     "menus": {
