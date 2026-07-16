@@ -1,0 +1,88 @@
+{
+  "name": "flutter-config",
+  "displayName": "Flutter Config",
+  "description": "Standardized MVVM & Clean Architecture generator with BLoC, Riverpod, Injectable, and Freezed",
+  "version": "0.0.20",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "flutter-config.init",
+        "title": "Flutter Config: Initialize Architecture"
+      },
+      {
+        "command": "flutter-config.createScreen",
+        "title": "Flutter Config: Create New Screen"
+      },
+      {
+        "command": "flutter-config.generateApiAction",
+        "title": "Flutter Config: Generate API Action from Callback"
+      },
+      {
+        "command": "flutter-config.generateLocalStateAction",
+        "title": "Flutter Config: Generate Local State Action from Callback"
+      },
+      {
+        "command": "flutter-config.initEnv",
+        "title": "Flutter Config: Initialize Env"
+      },
+      {
+        "command": "flutter-config.initLocalization",
+        "title": "Flutter Config: Initialize Localization"
+      },
+      {
+        "command": "flutter-config.initNotifications",
+        "title": "Flutter Config: Initialize Notifications"
+      },
+      {
+        "command": "flutter-config.initConnectivity",
+        "title": "Flutter Config: Initialize Connectivity"
+      },
+      {
+        "command": "flutter-config.initSecurity",
+        "title": "Flutter Config: Initialize Security"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "flutter-config.createScreen",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Flutter Config",
+      "properties": {
+        "flutterConfig.architecture": {
+          "type": "string",
+          "default": "",
+          "description": "Selected architecture style (Clean Architecture or MVVM)"
+        },
+        "flutterConfig.stateManagement": {
+          "type": "string",
+          "default": "",
+          "description": "Selected state management tool (BLoC or Riverpod)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "16.x",
+    "typescript": "^4.9.5"
+  }
+}
