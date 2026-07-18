@@ -3,12 +3,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 
-interface ModelProperty {
+export interface ModelProperty {
     name: string;
     type: string;
 }
 
-interface FeatureModel {
+export interface FeatureModel {
     modelName: string;
     modelNamePascal: string;
     modelNameSnake: string;
@@ -684,6 +684,43 @@ function getKeytoolEnv(): { cmd: string; env?: any } {
         });
     });
 
+    let initTestsDisposable = vscode.commands.registerCommand('flutter-config.initTests', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+
+        const rootPath = workspaceFolder.uri.fsPath;
+
+        // Get saved configurations
+        const config = vscode.workspace.getConfiguration('flutterConfig');
+        let stateMgmt = config.get<string>('stateManagement');
+
+        if (!stateMgmt) {
+            // Default to BLoC if not initialized yet
+            stateMgmt = await vscode.window.showQuickPick(
+                ['BLoC', 'Riverpod'],
+                { placeHolder: 'Select State Management Tool to configure test dependencies', ignoreFocusOut: true }
+            );
+            if (!stateMgmt) return;
+        }
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Flutter Config: Initializing test configurations...",
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: "Adding test dependencies to pubspec.yaml..." });
+            configurePubspecForTesting(rootPath, stateMgmt!);
+
+            progress.report({ message: "Generating unit, widget, and integration test templates..." });
+            generateTestBoilerplate(rootPath, stateMgmt!);
+
+            vscode.window.showInformationMessage("Successfully initialized Flutter Unit, Widget, and Integration tests!");
+        });
+    });
+
 
     context.subscriptions.push(initDisposable);
     context.subscriptions.push(createScreenDisposable);
@@ -697,6 +734,7 @@ function getKeytoolEnv(): { cmd: string; env?: any } {
     context.subscriptions.push(initSecurityDisposable);
     context.subscriptions.push(initThemeDisposable);
     context.subscriptions.push(generateSignedAppBundleDisposable);
+    context.subscriptions.push(initTestsDisposable);
 }
 
 // Quick Fix Actions Provider
@@ -813,7 +851,7 @@ async function promptForModels(featurePascal: string, featureName: string, featu
     return models;
 }
 
-function parseJsonToModel(name: string, inputJson: string | undefined): FeatureModel {
+export function parseJsonToModel(name: string, inputJson: string | undefined): FeatureModel {
     const pascal = toPascalCase(name);
     const snake = toSnakeCase(name);
     const camel = toCamelCase(name);
@@ -861,7 +899,7 @@ function parseJsonToModel(name: string, inputJson: string | undefined): FeatureM
     };
 }
 
-function getPackageName(rootPath: string): string {
+export function getPackageName(rootPath: string): string {
     let packageName = 'flutter_project';
     try {
         const pubspecPath = path.join(rootPath, 'pubspec.yaml');
@@ -877,19 +915,19 @@ function getPackageName(rootPath: string): string {
 }
 
 // Convert helpers
-function toSnakeCase(str: string): string {
+export function toSnakeCase(str: string): string {
     return str
         .replace(/([a-z])([A-Z])/g, '$1_$2')
         .replace(/[\s-]+/g, '_')
         .toLowerCase();
 }
 
-function toPascalCase(str: string): string {
+export function toPascalCase(str: string): string {
     const camel = toCamelCase(str);
     return camel.charAt(0).toUpperCase() + camel.slice(1);
 }
 
-function toCamelCase(str: string): string {
+export function toCamelCase(str: string): string {
     return str
         .replace(/[^a-zA-Z0-9\s-_]/g, '')
         .replace(/[-_\s]+(.)?/g, (_, c) => c ? c.toUpperCase() : '')
@@ -3297,6 +3335,143 @@ async function runBuildRunner(rootPath: string): Promise<void> {
             resolve();
         });
     });
+}
+
+export function configurePubspecForTesting(rootPath: string, stateManagement: string) {
+    const pubspecPath = path.join(rootPath, 'pubspec.yaml');
+    if (!fs.existsSync(pubspecPath)) return;
+
+    let content = fs.readFileSync(pubspecPath, 'utf8');
+    const devDepTag = 'dev_dependencies:';
+
+    if (content.includes(devDepTag)) {
+        let testDeps = '';
+        if (!content.includes('integration_test:')) {
+            testDeps += `\n  integration_test:\n    sdk: flutter`;
+        }
+        if (!content.includes('mocktail:')) {
+            testDeps += `\n  mocktail: ^1.0.4`;
+        }
+        if (stateManagement === 'BLoC' && !content.includes('bloc_test:')) {
+            testDeps += `\n  bloc_test: ^9.1.7`;
+        }
+
+        if (testDeps) {
+            content = content.replace(devDepTag, devDepTag + testDeps);
+        }
+    }
+
+    fs.writeFileSync(pubspecPath, content);
+}
+
+export function generateTestBoilerplate(rootPath: string, stateManagement: string) {
+    const pkgName = getPackageName(rootPath);
+    
+    // Create folders
+    const unitDir = path.join(rootPath, 'test', 'unit');
+    const widgetDir = path.join(rootPath, 'test', 'widget');
+    const integrationDir = path.join(rootPath, 'integration_test');
+
+    fs.mkdirSync(unitDir, { recursive: true });
+    fs.mkdirSync(widgetDir, { recursive: true });
+    fs.mkdirSync(integrationDir, { recursive: true });
+
+    // 1. Sample Unit Test
+    const unitTestPath = path.join(unitDir, 'sample_unit_test.dart');
+    if (!fs.existsSync(unitTestPath)) {
+        const unitTestContent = `import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+class MockHttpClient extends Mock {}
+
+void main() {
+  group('Sample Unit Tests', () {
+    test('standard math assertion', () {
+      int result = 2 + 2;
+      expect(result, equals(4));
+    });
+
+    test('mock class interaction', () {
+      final client = MockHttpClient();
+      when(() => client.toString()).thenReturn('MockedHttpClient');
+      expect(client.toString(), equals('MockedHttpClient'));
+    });
+  });
+}
+`;
+        fs.writeFileSync(unitTestPath, unitTestContent);
+    }
+
+    // 2. Bloc Test Example (if BLoC is used)
+    if (stateManagement === 'BLoC') {
+        const blocTestPath = path.join(unitDir, 'bloc_test_example.dart');
+        if (!fs.existsSync(blocTestPath)) {
+            const blocTestContent = `import 'package:flutter_test/flutter_test.dart';
+import 'package:bloc_test/bloc_test.dart';
+import 'package:mocktail/mocktail.dart';
+
+void main() {
+  group('Sample Bloc Tests', () {
+    // Example of blocTest:
+    // blocTest<MyBloc, MyState>(
+    //   'emits [MyState] when MyEvent is added',
+    //   build: () => MyBloc(),
+    //   act: (bloc) => bloc.add(MyEvent()),
+    //   expect: () => [isA<MyState>()],
+    // );
+  });
+}
+`;
+            fs.writeFileSync(blocTestPath, blocTestContent);
+        }
+    }
+
+    // 3. Sample Widget Test
+    const widgetTestPath = path.join(widgetDir, 'sample_widget_test.dart');
+    if (!fs.existsSync(widgetTestPath)) {
+        const widgetTestContent = `import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  group('Sample Widget Tests', () {
+    testWidgets('Counter increments smoke test example', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(child: Text('Hello World')),
+          ),
+        ),
+      );
+
+      expect(find.text('Hello World'), findsOneWidget);
+      expect(find.text('Goodbye World'), findsNothing);
+    });
+  });
+}
+`;
+        fs.writeFileSync(widgetTestPath, widgetTestContent);
+    }
+
+    // 4. Sample Integration Test
+    const integrationTestPath = path.join(integrationDir, 'app_test.dart');
+    if (!fs.existsSync(integrationTestPath)) {
+        const integrationTestContent = `import 'package:flutter_test/flutter_test.dart';
+import 'package:integration_test/integration_test.dart';
+import 'package:${pkgName}/main.dart' as app;
+
+void main() {
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  group('End-to-End Integration Test', () {
+    testWidgets('verify app startup and homepage display', (WidgetTester tester) async {
+      app.main();
+      await tester.pumpAndSettle();
+    });
+  });
+}
+`;
+        fs.writeFileSync(integrationTestPath, integrationTestContent);
+    }
 }
 
 export function deactivate() {}
