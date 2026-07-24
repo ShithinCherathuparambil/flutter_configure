@@ -47,7 +47,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Choose State Management
         const stateManagement = await vscode.window.showQuickPick(
-            ['BLoC', 'Riverpod'],
+            ['BLoC', 'Riverpod', 'PureBind'],
             { placeHolder: 'Select State Management Tool', ignoreFocusOut: true }
         );
         if (!stateManagement) return;
@@ -95,7 +95,7 @@ export function activate(context: vscode.ExtensionContext) {
                 { placeHolder: 'Select Architecture Style', ignoreFocusOut: true }
             );
             stateMgmt = await vscode.window.showQuickPick(
-                ['BLoC', 'Riverpod'],
+                ['BLoC', 'Riverpod', 'PureBind'],
                 { placeHolder: 'Select State Management Tool', ignoreFocusOut: true }
             );
             if (!arch || !stateMgmt) return;
@@ -947,6 +947,8 @@ async function installDependencies(rootPath: string, stateManagement: string): P
 
         if (stateManagement === 'BLoC') {
             pkgs.push('flutter_bloc');
+        } else if (stateManagement === 'PureBind') {
+            pkgs.push('purebind');
         } else {
             pkgs.push('flutter_riverpod');
             pkgs.push('riverpod_annotation');
@@ -957,6 +959,10 @@ async function installDependencies(rootPath: string, stateManagement: string): P
             'freezed',
             'json_serializable'
         ];
+
+        if (stateManagement === 'Riverpod') {
+            devPkgs.push('riverpod_generator');
+        }
 
         const cmd = `flutter pub add ${pkgs.join(' ')} --dev ${devPkgs.join(' ')}`;
         exec(cmd, { cwd: rootPath }, (err, stdout, stderr) => {
@@ -1229,7 +1235,7 @@ function registerRouteInGoRouter(
 
     // Insert import if not already present
     if (!content.includes(importPath)) {
-        content = importPath + '\n' + content;
+        content = `${importPath}\n${content}`;
     }
 
     // Insert GoRoute registration if not already present (using PageClass.route)
@@ -1302,10 +1308,20 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
             const blocCheck = `getIt.registerFactory<${pascal}Bloc>`;
             if (!content.includes(blocCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/presentation/bloc/${name}_bloc.dart';\n`;
-                const usecaseConstructorArgs = models.map(m => `getIt<Get${m.modelNamePascal}UseCase>()`).join(', ');
                 const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
                 registrations += `  getIt.registerFactory<${pascal}Bloc>(
     () => ${pascal}Bloc(
+      ${allUsecaseArgs},
+    ),
+  );\n`;
+            }
+        } else if (stateMgmt === 'PureBind') {
+            const controllerCheck = `getIt.registerFactory<${pascal}Controller>`;
+            if (!content.includes(controllerCheck)) {
+                imports += `import 'package:${packageName}/features/${name}/presentation/controllers/${name}_controller.dart';\n`;
+                const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
+                registrations += `  getIt.registerFactory<${pascal}Controller>(
+    () => ${pascal}Controller(
       ${allUsecaseArgs},
     ),
   );\n`;
@@ -1323,6 +1339,15 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
         if (stateMgmt === 'BLoC') {
             const blocCheck = `getIt.registerFactory<${pascal}ViewModel>`;
             if (!content.includes(blocCheck)) {
+                imports += `import 'package:${packageName}/features/${name}/viewmodels/${name}_viewmodel.dart';\n`;
+                registrations += `
+  getIt.registerFactory<${pascal}ViewModel>(
+    () => ${pascal}ViewModel(getIt<Dio>()),
+  );\n`;
+            }
+        } else if (stateMgmt === 'PureBind') {
+            const vmCheck = `getIt.registerFactory<${pascal}ViewModel>`;
+            if (!content.includes(vmCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/viewmodels/${name}_viewmodel.dart';\n`;
                 registrations += `
   getIt.registerFactory<${pascal}ViewModel>(
@@ -1377,6 +1402,8 @@ function generateCleanArchFiles(
     
     if (stateMgmt === 'BLoC') {
         fs.mkdirSync(path.join(presDir, 'bloc'), { recursive: true });
+    } else if (stateMgmt === 'PureBind') {
+        fs.mkdirSync(path.join(presDir, 'controllers'), { recursive: true });
     } else {
         fs.mkdirSync(path.join(presDir, 'riverpod'), { recursive: true });
     }
@@ -1760,7 +1787,7 @@ class ${pascal}Page extends StatelessWidget {
 `
             );
         }
-    } else {
+    } else if (stateMgmt === 'Riverpod') {
         // Riverpod
         const providerPath = path.join(presDir, 'riverpod', `${name}_provider.dart`);
         if (!skipPageIfExists || !fs.existsSync(providerPath)) {
@@ -1819,6 +1846,106 @@ class ${pascal}Page extends ConsumerWidget {
         data: (dataList) => const Center(child: Text('All APIs Loaded Resiliently (with Null-Safety)!')),
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (err, stack) => Center(child: Text(err.toString())),
+      ),
+    );
+  }
+}
+`
+            );
+        }
+    } else if (stateMgmt === 'PureBind') {
+        const controllerPath = path.join(presDir, 'controllers', `${name}_controller.dart`);
+        if (!skipPageIfExists || !fs.existsSync(controllerPath)) {
+            const controllerFields = models.map(m => `  final Get${m.modelNamePascal}UseCase get${m.modelNamePascal}UseCase;
+  final Create${m.modelNamePascal}UseCase create${m.modelNamePascal}UseCase;
+  final Update${m.modelNamePascal}UseCase update${m.modelNamePascal}UseCase;
+  final Delete${m.modelNamePascal}UseCase delete${m.modelNamePascal}UseCase;`).join('\n');
+
+            const controllerConstructorArgs = models.map(m => `    required this.get${m.modelNamePascal}UseCase,
+    required this.create${m.modelNamePascal}UseCase,
+    required this.update${m.modelNamePascal}UseCase,
+    required this.delete${m.modelNamePascal}UseCase,`).join('\n');
+
+            const controllerImports = models.map(m => `import '../../domain/usecases/get_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/create_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/update_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';
+import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
+
+            fs.writeFileSync(
+                controllerPath,
+                `import 'package:purebind/purebind.dart';
+${controllerImports}
+
+class ${pascal}Controller {
+${controllerFields}
+
+  ${pascal}Controller({
+${controllerConstructorArgs}
+  });
+
+  final isLoading = Pure<bool>(false);
+  final errorMessage = Pure<String?>(null);
+
+  Future<void> fetch${pascal}Data() async {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      await Future.wait([
+        ${models.map(m => `get${m.modelNamePascal}UseCase.execute().catchError((_) => const ${m.modelNamePascal}Entity()),`).join('\n        ')}
+      ]);
+    } catch (e) {
+      errorMessage.value = e.toString();
+    } finally {
+      isLoading.value = false;
+    }
+  }
+}
+`
+            );
+        }
+
+        const pagePath = path.join(presDir, 'pages', `${name}_page.dart`);
+        if (!skipPageIfExists || !fs.existsSync(pagePath) || fs.readFileSync(pagePath, 'utf8').trim() === '') {
+            fs.writeFileSync(
+                pagePath,
+                `import 'package:flutter/material.dart';
+import 'package:purebind/purebind.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../controllers/${name}_controller.dart';
+
+class ${pascal}Page extends StatelessWidget {
+  static const route = '/${name}';
+  final ${pascal}Controller controller = getIt<${pascal}Controller>();
+
+  ${pascal}Page({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('${pascal}')),
+      body: PureConsumer<String?>(
+        pure: controller.errorMessage,
+        listener: (context, error) {
+          if (error != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(error)),
+            );
+          }
+        },
+        child: PureBuilder<bool>(
+          pure: controller.isLoading,
+          builder: (context, isLoading) {
+            if (isLoading) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return const Center(child: Text('${pascal} Feature with PureBind!'));
+          },
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: controller.fetch${pascal}Data,
+        child: const Icon(Icons.refresh),
       ),
     );
   }
@@ -1963,61 +2090,118 @@ class ${pascal}View extends StatelessWidget {
 `
             );
         }
-    } else {
-        // ViewModel (as Riverpod Notifier)
+    } else if (stateMgmt === 'PureBind') {
         const vmPath = path.join(vmDir, `${name}_viewmodel.dart`);
         if (!skipPageIfExists || !fs.existsSync(vmPath)) {
             fs.writeFileSync(
                 vmPath,
-                `import 'package:riverpod_annotation/riverpod_annotation.dart';
+                `import 'package:purebind/purebind.dart';
 import 'package:dio/dio.dart';
-import 'package:${packageName}/core/di/injection.dart';
 import 'package:${packageName}/core/network/dio_extensions.dart';
 ${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';`).join('\n')}
 
-part '${name}_viewmodel.g.dart';
+class ${pascal}ViewModel {
+  final Dio dio;
 
-@riverpod
-class ${pascal}ViewModel extends _\$${pascal}ViewModel {
-  @override
-  FutureOr<List<dynamic>> build() async {
-    final dio = getIt<Dio>();
-    final results = await Future.wait([
-      ${models.map(m => `dio.getRequest('/${m.modelNameSnake}').catchError((_) => Response(requestOptions: RequestOptions())),`).join('\n      ')}
-    ]);
-    return [
-      ${models.map((m, idx) => `results[${idx}].data != null ? ${m.modelNamePascal}Model.fromJson(results[${idx}].data as Map<String, dynamic>) : null,`).join('\n      ')}
-    ];
+  ${pascal}ViewModel(this.dio);
+
+  final isFetching = Pure<bool>(false);
+  final errorMessage = Pure<String?>(null);
+
+  Future<void> fetch${pascal}Data() async {
+    isFetching.value = true;
+    errorMessage.value = null;
+    try {
+      await Future.wait([
+        ${models.map(m => `dio.getRequest('/${m.modelNameSnake}').catchError((_) => Response(requestOptions: RequestOptions())),`).join('\n        ')}
+      ]);
+    } catch (e) {
+      errorMessage.value = e.toString();
+    } finally {
+      isFetching.value = false;
+    }
   }
 }
 `
             );
         }
 
-        // View (with static route definition)
         const viewPath = path.join(viewsDir, `${name}_view.dart`);
         if (!skipPageIfExists || !fs.existsSync(viewPath) || fs.readFileSync(viewPath, 'utf8').trim() === '') {
             fs.writeFileSync(
                 viewPath,
                 `import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:purebind/purebind.dart';
+import 'package:${packageName}/core/di/injection.dart';
 import '../viewmodels/${name}_viewmodel.dart';
 
-class ${pascal}View extends ConsumerWidget {
+class ${pascal}View extends StatelessWidget {
+  static const route = '/${name}';
+  final ${pascal}ViewModel viewModel = getIt<${pascal}ViewModel>();
+
+  ${pascal}View({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('${pascal}')),
+      body: PureConsumer<String?>(
+        pure: viewModel.errorMessage,
+        listener: (context, error) {
+          if (error != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(error)),
+            );
+          }
+        },
+        child: PureBuilder<bool>(
+          pure: viewModel.isFetching,
+          builder: (context, isFetching) {
+            if (isFetching) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return const Center(child: Text('${pascal} View with PureBind!'));
+          },
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: viewModel.fetch${pascal}Data,
+        child: const Icon(Icons.refresh),
+      ),
+    );
+  }
+}
+`
+            );
+        }
+    } else {
+        // Default MVVM (BLoC or Riverpod empty template)
+        const vmPath = path.join(vmDir, `${name}_viewmodel.dart`);
+        if (!skipPageIfExists || !fs.existsSync(vmPath)) {
+            fs.writeFileSync(
+                vmPath,
+                `import 'package:flutter/material.dart';
+
+class ${pascal}ViewModel extends ChangeNotifier {}
+`
+            );
+        }
+
+        const viewPath = path.join(viewsDir, `${name}_view.dart`);
+        if (!skipPageIfExists || !fs.existsSync(viewPath) || fs.readFileSync(viewPath, 'utf8').trim() === '') {
+            fs.writeFileSync(
+                viewPath,
+                `import 'package:flutter/material.dart';
+
+class ${pascal}View extends StatelessWidget {
   static const route = '/${name}';
   const ${pascal}View({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(${camel}ViewModelProvider);
-
+  Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('${pascal}')),
-      body: state.when(
-        data: (modelsList) => const Center(child: Text('MVVM Riverpod Data Loaded Resiliently!')),
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text(err.toString())),
-      ),
+      body: const Center(child: Text('${pascal} Screen')),
     );
   }
 }
@@ -2349,24 +2533,22 @@ function configurePubspecForEnvAndL10n(rootPath: string) {
 
     // 1. Add flutter_localizations under dependencies
     if (!content.includes('flutter_localizations:')) {
-        const depTag = 'dependencies:';
-        const localizationsDep = `\n  flutter_localizations:\n    sdk: flutter`;
-        content = content.replace(depTag, depTag + localizationsDep);
+        content = content.replace(/^dependencies:/m, `dependencies:\n  flutter_localizations:\n    sdk: flutter`);
     }
 
-    // 2. Add generate: true under flutter
-    if (!content.includes('generate: true')) {
-        const flutterTag = 'flutter:';
-        content = content.replace(flutterTag, `${flutterTag}\n  generate: true`);
-    }
-
-    // 3. Add .env to assets under flutter
-    if (!content.includes('.env')) {
-        if (content.includes('assets:')) {
-            content = content.replace('assets:', `assets:\n    - .env`);
-        } else {
-            const flutterTag = 'flutter:';
-            content = content.replace(flutterTag, `${flutterTag}\n  assets:\n    - .env`);
+    // 2. Ensure flutter: block exists and insert generate: true / assets correctly
+    if (!/^flutter:/m.test(content)) {
+        content += `\nflutter:\n  generate: true\n  assets:\n    - .env\n`;
+    } else {
+        if (!content.includes('generate: true')) {
+            content = content.replace(/^flutter:/m, `flutter:\n  generate: true`);
+        }
+        if (!content.includes('.env')) {
+            if (/^\s*assets:/m.test(content)) {
+                content = content.replace(/^\s*assets:/m, `  assets:\n    - .env`);
+            } else {
+                content = content.replace(/^flutter:/m, `flutter:\n  assets:\n    - .env`);
+            }
         }
     }
 
@@ -2700,14 +2882,15 @@ class ConnectivityService {
   Stream<bool> get connectionStream => _connectionStreamController.stream;
 
   void initialize() {
-    _connectivity.onConnectivityChanged.listen((ConnectivityResult result) {
-      _connectionStreamController.add(result != ConnectivityResult.none);
+    _connectivity.onConnectivityChanged.listen((List<ConnectivityResult> results) {
+      final isConnected = results.any((result) => result != ConnectivityResult.none);
+      _connectionStreamController.add(isConnected);
     });
   }
 
   Future<bool> checkConnection() async {
-    final result = await _connectivity.checkConnectivity();
-    return result != ConnectivityResult.none;
+    final results = await _connectivity.checkConnectivity();
+    return results.any((result) => result != ConnectivityResult.none);
   }
 
   void dispose() {
@@ -2778,6 +2961,7 @@ class NoInternetWidget extends StatelessWidget {
                 child: ElevatedButton(
                   onPressed: () async {
                     final isConnected = await ConnectivityService().checkConnection();
+                    if (!context.mounted) return;
                     if (isConnected) {
                       if (onRetry != null) {
                         onRetry!();
@@ -3025,7 +3209,7 @@ class AppTheme {
         elevation: 0,
         titleTextStyle: AppTextStyle.heading2,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.surface,
         elevation: 2,
         shape: RoundedRectangleBorder(
@@ -3080,7 +3264,7 @@ class AppTheme {
         elevation: 0,
         titleTextStyle: AppTextStyle.heading2Dark,
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.surfaceDark,
         elevation: 2,
         shape: RoundedRectangleBorder(
@@ -3328,9 +3512,12 @@ if (keystorePropertiesFile.exists()) {
 
 async function runBuildRunner(rootPath: string): Promise<void> {
     return new Promise((resolve) => {
-        exec('dart run build_runner build --delete-conflicting-outputs', { cwd: rootPath }, (err, stdout, stderr) => {
+        exec('flutter pub run build_runner build --delete-conflicting-outputs', { cwd: rootPath }, (err, stdout, stderr) => {
             if (err) {
-                console.error(`Build runner error: ${stderr}`);
+                console.error(`Build runner error: ${stderr || err.message}`);
+                vscode.window.showWarningMessage(`Build Runner completed with warnings/errors. You can run 'flutter pub run build_runner build --delete-conflicting-outputs' in terminal if needed.`);
+            } else {
+                console.log(`Build runner finished successfully: ${stdout}`);
             }
             resolve();
         });

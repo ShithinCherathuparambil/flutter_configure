@@ -1,8 +1,8 @@
 {
   "name": "flutter-config",
   "displayName": "Flutter Config",
-  "description": "Standardized MVVM & Clean Architecture generator with BLoC, Riverpod, Injectable, and Freezed",
-  "version": "0.0.31",
+  "description": "Standardized MVVM & Clean Architecture generator with BLoC, Riverpod, PureBind, Injectable, and Freezed",
+  "version": "0.0.42",
   "engines": {
     "vscode": "^1.75.0"
   },
