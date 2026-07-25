@@ -67,7 +67,7 @@ export function activate(context: vscode.ExtensionContext) {
 
             progress.report({ message: "Generating core configuration..." });
             generateCoreConfig(rootPath);
-            updateMainDartForRouterAndScreenUtil(rootPath);
+            updateMainDartForRouterAndScreenUtil(rootPath, stateManagement);
 
             vscode.window.showInformationMessage(`Flutter Config Initialized with ${archType} and ${stateManagement}!`);
         });
@@ -269,6 +269,17 @@ export function activate(context: vscode.ExtensionContext) {
         });
         if (!endpoint) return;
 
+        const inputJson = await vscode.window.showInputBox({
+            prompt: `Paste JSON response for "${actionPascal}" to generate response model automatically (Optional)`,
+            placeHolder: '{"id": 1, "title": "Example"}',
+            ignoreFocusOut: true
+        });
+
+        let responseModel: FeatureModel | null = null;
+        if (inputJson && inputJson.trim() !== '') {
+            responseModel = parseJsonToModel(`${actionPascal}Response`, inputJson);
+        }
+
         let packageName = getPackageName(rootPath);
 
         await vscode.window.withProgress({
@@ -277,9 +288,9 @@ export function activate(context: vscode.ExtensionContext) {
             cancellable: false
         }, async (progress) => {
             if (arch.includes('Clean')) {
-                await addCleanArchApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName);
+                await addCleanArchApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName, responseModel);
             } else {
-                await addMvvmApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName);
+                await addMvvmApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName, responseModel);
             }
 
             editor.edit((editBuilder) => {
@@ -1172,11 +1183,13 @@ final GoRouter appRouter = GoRouter(
     }
 }
 
-function updateMainDartForRouterAndScreenUtil(rootPath: string) {
+function updateMainDartForRouterAndScreenUtil(rootPath: string, stateMgmt?: string) {
     const mainPath = path.join(rootPath, 'lib', 'main.dart');
     if (!fs.existsSync(mainPath)) return;
 
-    const mainTemplate = `import 'package:flutter/material.dart';
+    const isRiverpod = stateMgmt === 'Riverpod';
+
+    const mainTemplate = `${isRiverpod ? "import 'package:flutter_riverpod/flutter_riverpod.dart';\n" : ""}import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'core/di/injection.dart';
 import 'core/router/app_router.dart';
@@ -1184,7 +1197,7 @@ import 'core/router/app_router.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   configureDependencies();
-  runApp(const MyApp());
+  runApp(${isRiverpod ? "const ProviderScope(child: MyApp())" : "const MyApp()"});
 }
 
 class MyApp extends StatelessWidget {
@@ -1334,24 +1347,28 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
             if (!content.includes(modelImportCheck)) {
                 imports += `${modelImportCheck}\n`;
             }
-        }
+            const serviceImportCheck = `import 'package:${packageName}/features/${name}/services/${m.modelNameSnake}_api_service.dart';`;
+            if (!content.includes(serviceImportCheck)) {
+                imports += `${serviceImportCheck}\n`;
+            }
 
-        if (stateMgmt === 'BLoC') {
-            const blocCheck = `getIt.registerFactory<${pascal}ViewModel>`;
-            if (!content.includes(blocCheck)) {
-                imports += `import 'package:${packageName}/features/${name}/viewmodels/${name}_viewmodel.dart';\n`;
+            const serviceCheck = `getIt.registerLazySingleton<${m.modelNamePascal}ApiService>`;
+            if (!content.includes(serviceCheck)) {
                 registrations += `
-  getIt.registerFactory<${pascal}ViewModel>(
-    () => ${pascal}ViewModel(getIt<Dio>()),
+  getIt.registerLazySingleton<${m.modelNamePascal}ApiService>(
+    () => ${m.modelNamePascal}ApiServiceImpl(getIt<Dio>()),
   );\n`;
             }
-        } else if (stateMgmt === 'PureBind') {
+        }
+
+        if (stateMgmt !== 'Riverpod') {
             const vmCheck = `getIt.registerFactory<${pascal}ViewModel>`;
             if (!content.includes(vmCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/viewmodels/${name}_viewmodel.dart';\n`;
+                const serviceArgs = models.map(m => `getIt<${m.modelNamePascal}ApiService>()`).join(', ');
                 registrations += `
   getIt.registerFactory<${pascal}ViewModel>(
-    () => ${pascal}ViewModel(getIt<Dio>()),
+    () => ${pascal}ViewModel(${serviceArgs}),
   );\n`;
             }
         }
@@ -1513,8 +1530,17 @@ class Delete${m.modelNamePascal}UseCase {
         );
 
         // 4. Model (Freezed)
-        const modelPropertiesDecl = m.properties.map(p => `    required ${p.type} ${p.name},`).join('\n');
-        const modelToEntityMapper = m.properties.map(p => `      ${p.name}: ${p.name},`).join('\n');
+        const modelPropertiesDecl = m.properties.map(p => {
+            const camelName = toCamelCase(p.name);
+            if (camelName !== p.name) {
+                return `    @JsonKey(name: '${p.name}') required ${p.type} ${camelName},`;
+            }
+            return `    required ${p.type} ${p.name},`;
+        }).join('\n');
+        const modelToEntityMapper = m.properties.map(p => {
+            const camelName = toCamelCase(p.name);
+            return `      ${p.name}: ${camelName},`;
+        }).join('\n');
 
         fs.writeFileSync(
             path.join(dataDir, 'models', `${m.modelNameSnake}_model.dart`),
@@ -1545,7 +1571,6 @@ ${modelToEntityMapper}
         fs.writeFileSync(
             path.join(dataDir, 'datasources', `${m.modelNameSnake}_remote_data_source.dart`),
             `import 'package:dio/dio.dart';
-import 'package:${packageName}/core/network/dio_extensions.dart';
 import '../models/${m.modelNameSnake}_model.dart';
 
 abstract class ${m.modelNamePascal}RemoteDataSource {
@@ -1563,7 +1588,7 @@ class ${m.modelNamePascal}RemoteDataSourceImpl implements ${m.modelNamePascal}Re
   @override
   Future<${m.modelNamePascal}Model> fetch${m.modelNamePascal}Data() async {
     try {
-      final response = await dio.getRequest('/${m.modelNameSnake}');
+      final response = await dio.get('/${m.modelNameSnake}');
       return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       throw Exception("Failed to fetch ${m.modelNameSnake}: \$e");
@@ -1573,7 +1598,7 @@ class ${m.modelNamePascal}RemoteDataSourceImpl implements ${m.modelNamePascal}Re
   @override
   Future<${m.modelNamePascal}Model> create${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
     try {
-      final response = await dio.postRequest('/${m.modelNameSnake}', data: model.toJson());
+      final response = await dio.post('/${m.modelNameSnake}', data: model.toJson());
       return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       throw Exception("Failed to create ${m.modelNameSnake}: \$e");
@@ -1583,7 +1608,7 @@ class ${m.modelNamePascal}RemoteDataSourceImpl implements ${m.modelNamePascal}Re
   @override
   Future<${m.modelNamePascal}Model> update${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
     try {
-      final response = await dio.putRequest('/${m.modelNameSnake}', data: model.toJson());
+      final response = await dio.put('/${m.modelNameSnake}', data: model.toJson());
       return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       throw Exception("Failed to update ${m.modelNameSnake}: \$e");
@@ -1593,7 +1618,7 @@ class ${m.modelNamePascal}RemoteDataSourceImpl implements ${m.modelNamePascal}Re
   @override
   Future<void> delete${m.modelNamePascal}(dynamic id) async {
     try {
-      await dio.deleteRequest('/${m.modelNameSnake}/\$id');
+      await dio.delete('/${m.modelNameSnake}/\$id');
     } catch (e) {
       throw Exception("Failed to delete ${m.modelNameSnake}: \$e");
     }
@@ -1977,7 +2002,13 @@ function generateMVVMFiles(
 
     // Generate models
     for (const m of models) {
-        const modelPropertiesDecl = m.properties.map(p => `    required ${p.type} ${p.name},`).join('\n');
+        const modelPropertiesDecl = m.properties.map(p => {
+            const camelName = toCamelCase(p.name);
+            if (camelName !== p.name) {
+                return `    @JsonKey(name: '${p.name}') required ${p.type} ${camelName},`;
+            }
+            return `    required ${p.type} ${p.name},`;
+        }).join('\n');
 
         fs.writeFileSync(
             path.join(modelsDir, `${m.modelNameSnake}_model.dart`),
@@ -1998,6 +2029,44 @@ ${modelPropertiesDecl}
         );
     }
 
+    // Create services directory for MVVM API Calls
+    const servicesDir = path.join(featDir, 'services');
+    fs.mkdirSync(servicesDir, { recursive: true });
+
+    // Generate API Service for each model or feature
+    for (const m of models) {
+        const servicePath = path.join(servicesDir, `${m.modelNameSnake}_api_service.dart`);
+        if (!fs.existsSync(servicePath)) {
+            fs.writeFileSync(
+                servicePath,
+                `import 'package:dio/dio.dart';
+import '../models/${m.modelNameSnake}_model.dart';
+
+abstract class ${m.modelNamePascal}ApiService {
+  Future<${m.modelNamePascal}Model?> get${m.modelNamePascal}();
+}
+
+class ${m.modelNamePascal}ApiServiceImpl implements ${m.modelNamePascal}ApiService {
+  final Dio dio;
+
+  ${m.modelNamePascal}ApiServiceImpl(this.dio);
+
+  @override
+  Future<${m.modelNamePascal}Model?> get${m.modelNamePascal}() async {
+    try {
+      final response = await dio.get('/${m.modelNameSnake}');
+      if (response.data != null) {
+        return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+}
+`
+            );
+        }
+    }
+
     // ViewModel & View depending on State Management
     if (stateMgmt === 'BLoC') {
         const vmPath = path.join(vmDir, `${name}_viewmodel.dart`);
@@ -2009,9 +2078,7 @@ ${modelPropertiesDecl}
             fs.writeFileSync(
                 vmPath,
                 `import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:dio/dio.dart';
-import 'package:${packageName}/core/network/dio_extensions.dart';
-${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';`).join('\n')}
+${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
 
 abstract class ${pascal}State {}
 class ${pascal}Initial extends ${pascal}State {}
@@ -2028,19 +2095,19 @@ class ${pascal}Error extends ${pascal}State {
 }
 
 class ${pascal}ViewModel extends Cubit<${pascal}State> {
-  final Dio dio;
+${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
 
-  ${pascal}ViewModel(this.dio) : super(${pascal}Initial());
+  ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')}) : super(${pascal}Initial());
 
   Future<void> fetch${pascal}Data() async {
     emit(${pascal}Loading());
     try {
       final results = await Future.wait([
-        ${models.map(m => `dio.getRequest('/${m.modelNameSnake}').catchError((_) => Response(requestOptions: RequestOptions())),`).join('\n        ')}
+        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
       ]);
 
       emit(${pascal}Loaded(
-        ${models.map((m, idx) => `${m.modelNameCamel}Model: results[${idx}].data != null ? ${m.modelNamePascal}Model.fromJson(results[${idx}].data as Map<String, dynamic>) : null,`).join('\n        ')}
+        ${models.map((m, idx) => `${m.modelNameCamel}Model: results[${idx}] as ${m.modelNamePascal}Model?,`).join('\n        ')}
       ));
     } catch (e) {
       emit(${pascal}Error(e.toString()));
@@ -2096,14 +2163,12 @@ class ${pascal}View extends StatelessWidget {
             fs.writeFileSync(
                 vmPath,
                 `import 'package:purebind/purebind.dart';
-import 'package:dio/dio.dart';
-import 'package:${packageName}/core/network/dio_extensions.dart';
-${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';`).join('\n')}
+${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
 
 class ${pascal}ViewModel {
-  final Dio dio;
+${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
 
-  ${pascal}ViewModel(this.dio);
+  ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
 
   final isFetching = Pure<bool>(false);
   final errorMessage = Pure<String?>(null);
@@ -2113,7 +2178,7 @@ class ${pascal}ViewModel {
     errorMessage.value = null;
     try {
       await Future.wait([
-        ${models.map(m => `dio.getRequest('/${m.modelNameSnake}').catchError((_) => Response(requestOptions: RequestOptions())),`).join('\n        ')}
+        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
       ]);
     } catch (e) {
       errorMessage.value = e.toString();
@@ -2174,15 +2239,73 @@ class ${pascal}View extends StatelessWidget {
 `
             );
         }
-    } else {
-        // Default MVVM (BLoC or Riverpod empty template)
+    } else if (stateMgmt === 'Riverpod') {
         const vmPath = path.join(vmDir, `${name}_viewmodel.dart`);
         if (!skipPageIfExists || !fs.existsSync(vmPath)) {
             fs.writeFileSync(
                 vmPath,
-                `import 'package:flutter/material.dart';
+                `import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:dio/dio.dart';
+import 'package:${packageName}/core/di/injection.dart';
+${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
 
-class ${pascal}ViewModel extends ChangeNotifier {}
+part '${name}_viewmodel.g.dart';
+
+class ${pascal}State {
+  final bool isLoading;
+  final bool isSuccess;
+  final String? message;
+${models.map(m => `  final ${m.modelNamePascal}Model? ${m.modelNameCamel}Model;`).join('\n')}
+
+  const ${pascal}State({
+    this.isLoading = false,
+    this.isSuccess = false,
+    this.message,
+${models.map(m => `    this.${m.modelNameCamel}Model,`).join('\n')}
+  });
+
+  ${pascal}State copyWith({
+    bool? isLoading,
+    bool? isSuccess,
+    String? message,
+${models.map(m => `    ${m.modelNamePascal}Model? ${m.modelNameCamel}Model,`).join('\n')}
+  }) {
+    return ${pascal}State(
+      isLoading: isLoading ?? this.isLoading,
+      isSuccess: isSuccess ?? this.isSuccess,
+      message: message ?? this.message,
+${models.map(m => `      ${m.modelNameCamel}Model: ${m.modelNameCamel}Model ?? this.${m.modelNameCamel}Model,`).join('\n')}
+    );
+  }
+}
+
+@riverpod
+class ${pascal}ViewModel extends _\$${pascal}ViewModel {
+  @override
+  ${pascal}State build() {
+    return const ${pascal}State();
+  }
+
+  Future<void> fetch${pascal}Data() async {
+    state = state.copyWith(isLoading: true, isSuccess: false);
+    try {
+      final results = await Future.wait([
+        ${models.map(m => `getIt<${m.modelNamePascal}ApiService>().get${m.modelNamePascal}(),`).join('\n        ')}
+      ]);
+      state = state.copyWith(
+        isLoading: false,
+        isSuccess: true,
+        ${models.map((m, idx) => `${m.modelNameCamel}Model: results[${idx}] as ${m.modelNamePascal}Model?,`).join('\n        ')}
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false, isSuccess: false, message: e.toString());
+    }
+  }
+
+  Future<void> ${name}Featured() async {
+    await fetch${pascal}Data();
+  }
+}
 `
             );
         }
@@ -2192,16 +2315,127 @@ class ${pascal}ViewModel extends ChangeNotifier {}
             fs.writeFileSync(
                 viewPath,
                 `import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../viewmodels/${name}_viewmodel.dart';
 
-class ${pascal}View extends StatelessWidget {
+class ${pascal}View extends ConsumerStatefulWidget {
   static const route = '/${name}';
   const ${pascal}View({super.key});
 
   @override
+  ConsumerState<${pascal}View> createState() => _${pascal}ViewState();
+}
+
+class _${pascal}ViewState extends ConsumerState<${pascal}View> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      ref.read(${camel}ViewModelProvider.notifier).fetch${pascal}Data();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = ref.watch(${camel}ViewModelProvider);
+
     return Scaffold(
       appBar: AppBar(title: const Text('${pascal}')),
-      body: const Center(child: Text('${pascal} Screen')),
+      body: state.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : state.message != null
+              ? Center(child: Text(state.message!))
+              : const Center(child: Text('${pascal} Screen')),
+    );
+  }
+}
+`
+            );
+        }
+    } else {
+        // Default MVVM (ChangeNotifier)
+        const vmPath = path.join(vmDir, `${name}_viewmodel.dart`);
+        if (!skipPageIfExists || !fs.existsSync(vmPath)) {
+            fs.writeFileSync(
+                vmPath,
+                `import 'package:flutter/material.dart';
+${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+
+class ${pascal}ViewModel extends ChangeNotifier {
+${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
+
+  ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
+
+  bool _isLoading = false;
+  bool get isLoading => _isLoading;
+
+  String? _errorMessage;
+  String? get errorMessage => _errorMessage;
+
+  Future<void> fetch${pascal}Data() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await Future.wait([
+        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
+      ]);
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> ${name}Featured() async {
+    await fetch${pascal}Data();
+  }
+}
+`
+            );
+        }
+
+        const viewPath = path.join(viewsDir, `${name}_view.dart`);
+        if (!skipPageIfExists || !fs.existsSync(viewPath) || fs.readFileSync(viewPath, 'utf8').trim() === '') {
+            fs.writeFileSync(
+                viewPath,
+                `import 'package:flutter/material.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../viewmodels/${name}_viewmodel.dart';
+
+class ${pascal}View extends StatefulWidget {
+  static const route = '/${name}';
+  const ${pascal}View({super.key});
+
+  @override
+  State<${pascal}View> createState() => _${pascal}ViewState();
+}
+
+class _${pascal}ViewState extends State<${pascal}View> {
+  final ${pascal}ViewModel viewModel = getIt<${pascal}ViewModel>();
+
+  @override
+  void initState() {
+    super.initState();
+    viewModel.fetch${pascal}Data();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: viewModel,
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('${pascal}')),
+          body: viewModel.isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : viewModel.errorMessage != null
+                  ? Center(child: Text(viewModel.errorMessage!))
+                  : const Center(child: Text('${pascal} Screen')),
+        );
+      },
     );
   }
 }
@@ -2220,12 +2454,37 @@ async function addCleanArchApiAction(
     httpMethod: string,
     endpoint: string,
     stateMgmt: string,
-    packageName: string
+    packageName: string,
+    responseModel: FeatureModel | null = null
 ) {
     const featDir = path.join(rootPath, 'lib', 'features', featureName);
     const dataDir = path.join(featDir, 'data');
     const domainDir = path.join(featDir, 'domain');
     const presDir = path.join(featDir, 'presentation');
+
+    if (responseModel) {
+        const modelDir = path.join(dataDir, 'models');
+        fs.mkdirSync(modelDir, { recursive: true });
+        const modelPath = path.join(modelDir, `${toSnakeCase(actionCamel)}_response_model.dart`);
+        const modelPropertiesDecl = responseModel.properties.map(p => `    required ${p.type} ${p.name},`).join('\n');
+        fs.writeFileSync(
+            modelPath,
+            `import 'package:freezed_annotation/freezed_annotation.dart';
+
+part '${toSnakeCase(actionCamel)}_response_model.freezed.dart';
+part '${toSnakeCase(actionCamel)}_response_model.g.dart';
+
+@freezed
+abstract class ${actionPascal}ResponseModel with _\$${actionPascal}ResponseModel {
+  const factory ${actionPascal}ResponseModel({
+${modelPropertiesDecl}
+  }) = _${actionPascal}ResponseModel;
+
+  factory ${actionPascal}ResponseModel.fromJson(Map<String, dynamic> json) => _\$${actionPascal}ResponseModelFromJson(json);
+}
+`
+        );
+    }
 
     // 1. Remote Data Source
     const dsPath = path.join(dataDir, 'datasources', `${featureName}_remote_data_source.dart`);
@@ -2373,47 +2632,156 @@ async function addMvvmApiAction(
     httpMethod: string,
     endpoint: string,
     stateMgmt: string,
-    packageName: string
+    packageName: string,
+    responseModel: FeatureModel | null = null
 ) {
     const featDir = path.join(rootPath, 'lib', 'features', featureName);
     const vmDir = path.join(featDir, 'viewmodels');
+    const modelsDir = path.join(featDir, 'models');
+    const servicesDir = path.join(featDir, 'services');
+
+    if (responseModel) {
+        fs.mkdirSync(modelsDir, { recursive: true });
+        const modelPath = path.join(modelsDir, `${toSnakeCase(actionCamel)}_response_model.dart`);
+        const modelPropertiesDecl = responseModel.properties.map(p => {
+            const camelName = toCamelCase(p.name);
+            if (camelName !== p.name) {
+                return `    @JsonKey(name: '${p.name}') required ${p.type} ${camelName},`;
+            }
+            return `    required ${p.type} ${p.name},`;
+        }).join('\n');
+
+        fs.writeFileSync(
+            modelPath,
+            `import 'package:freezed_annotation/freezed_annotation.dart';
+
+part '${toSnakeCase(actionCamel)}_response_model.freezed.dart';
+part '${toSnakeCase(actionCamel)}_response_model.g.dart';
+
+@freezed
+abstract class ${actionPascal}ResponseModel with _\$${actionPascal}ResponseModel {
+  const factory ${actionPascal}ResponseModel({
+${modelPropertiesDecl}
+  }) = _${actionPascal}ResponseModel;
+
+  factory ${actionPascal}ResponseModel.fromJson(Map<String, dynamic> json) => _\$${actionPascal}ResponseModelFromJson(json);
+}
+`
+        );
+
+        fs.mkdirSync(servicesDir, { recursive: true });
+        const servicePath = path.join(servicesDir, `${toSnakeCase(actionCamel)}_api_service.dart`);
+        fs.writeFileSync(
+            servicePath,
+            `import 'package:dio/dio.dart';
+import '../models/${toSnakeCase(actionCamel)}_response_model.dart';
+
+abstract class ${actionPascal}ResponseModelApiService {
+  Future<${actionPascal}ResponseModel> get${actionPascal}ResponseModel();
+}
+
+class ${actionPascal}ResponseModelApiServiceImpl implements ${actionPascal}ResponseModelApiService {
+  final Dio dio;
+
+  ${actionPascal}ResponseModelApiServiceImpl(this.dio);
+
+  @override
+  Future<${actionPascal}ResponseModel> get${actionPascal}ResponseModel() async {
+    final response = await dio.${httpMethod.toLowerCase()}('${endpoint}');
+    return ${actionPascal}ResponseModel.fromJson(response.data as Map<String, dynamic>);
+  }
+}
+`
+        );
+
+        const diPath = path.join(rootPath, 'lib', 'core', 'di', 'injection.dart');
+        if (fs.existsSync(diPath)) {
+            let content = fs.readFileSync(diPath, 'utf8');
+            const serviceImport = `import 'package:${packageName}/features/${featureName}/services/${toSnakeCase(actionCamel)}_api_service.dart';\n`;
+            if (!content.includes(serviceImport)) {
+                content = serviceImport + content;
+            }
+            const regTag = `// Features register tag (DO NOT REMOVE)`;
+            const regCode = `  getIt.registerLazySingleton<${actionPascal}ResponseModelApiService>(
+    () => ${actionPascal}ResponseModelApiServiceImpl(getIt<Dio>()),
+  );\n`;
+            if (!content.includes(`${actionPascal}ResponseModelApiService`)) {
+                content = content.replace(regTag, regCode + '  ' + regTag);
+                fs.writeFileSync(diPath, content);
+            }
+        }
+    }
 
     if (stateMgmt === 'BLoC') {
         const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
         if (fs.existsSync(vmPath)) {
             let content = fs.readFileSync(vmPath, 'utf8');
-            const searchConstructor = `  ${featurePascal}ViewModel(this.dio) : super(${featurePascal}Initial());`;
+            const searchConstructor = `  ${featurePascal}ViewModel(`;
             const methodCode = `\n  Future<void> ${actionCamel}() async {
     emit(${featurePascal}Loading());
     try {
-      await dio.${httpMethod.toLowerCase()}Request('${endpoint}');
+      final dio = getIt<Dio>();
+      await dio.${httpMethod.toLowerCase()}('${endpoint}');
       await fetch${featurePascal}Data();
     } catch (e) {
       emit(${featurePascal}Error(e.toString()));
     }
   }\n`;
-            content = content.replace(searchConstructor, `${searchConstructor}\n${methodCode}`);
-            fs.writeFileSync(vmPath, content);
+            if (content.includes(searchConstructor)) {
+                const idx = content.indexOf(searchConstructor);
+                const braceIdx = content.indexOf('{', idx);
+                if (braceIdx !== -1) {
+                    content = content.slice(0, braceIdx + 1) + methodCode + content.slice(braceIdx + 1);
+                    fs.writeFileSync(vmPath, content);
+                }
+            }
         }
     } else {
         const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
         if (fs.existsSync(vmPath)) {
             let content = fs.readFileSync(vmPath, 'utf8');
             const classTag = `class ${featurePascal}ViewModel extends _\$${featurePascal}ViewModel {`;
-            const methodCode = `  Future<void> ${actionCamel}() async {
-    state = const AsyncValue.loading();
+            
+            let methodCode = '';
+            if (responseModel) {
+                const responseImport = `import '../models/${toSnakeCase(actionCamel)}_response_model.dart';\n`;
+                const serviceImport = `import '../services/${toSnakeCase(actionCamel)}_api_service.dart';\n`;
+                if (!content.includes(responseImport)) content = responseImport + content;
+                if (!content.includes(serviceImport)) content = serviceImport + content;
+
+                methodCode = `  Future<void> ${actionCamel}() async {
+    state = state.copyWith(isLoading: true, isSuccess: false);
     try {
-      final dio = getIt<Dio>();
-      await dio.${httpMethod.toLowerCase()}Request('${endpoint}');
-      ref.invalidateSelf();
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
+      final response = await getIt<${actionPascal}ResponseModelApiService>().get${actionPascal}ResponseModel();
+      state = state.copyWith(
+        isLoading: false,
+        isSuccess: true,
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false, isSuccess: false, message: e.toString());
     }
   }\n`;
-            content = content.replace(classTag, `${classTag}\n${methodCode}`);
-            fs.writeFileSync(vmPath, content);
+            } else {
+                methodCode = `  Future<void> ${actionCamel}() async {
+    state = state.copyWith(isLoading: true, isSuccess: false);
+    try {
+      final dio = getIt<Dio>();
+      await dio.${httpMethod.toLowerCase()}('${endpoint}');
+      await fetch${featurePascal}Data();
+    } catch (e) {
+      state = state.copyWith(isLoading: false, isSuccess: false, message: e.toString());
+    }
+  }\n`;
+            }
+
+            if (content.includes(classTag)) {
+                content = content.replace(classTag, `${classTag}\n${methodCode}`);
+                fs.writeFileSync(vmPath, content);
+            }
         }
     }
+
+    await runBuildRunner(rootPath);
 }
 
 async function addLocalStateAction(
@@ -3458,10 +3826,18 @@ if (keystorePropertiesFile.exists()) {
             }
         }
 
-        content = content.replace(
-            'signingConfig = signingConfigs.getByName("debug")',
-            'signingConfig = signingConfigs.getByName("release")'
-        );
+        if (content.includes('signingConfig = signingConfigs.getByName("debug")')) {
+            content = content.replace(
+                'signingConfig = signingConfigs.getByName("debug")',
+                'signingConfig = signingConfigs.getByName("release")'
+            );
+        } else if (!content.includes('signingConfigs.getByName("release")')) {
+            const releaseBlockIndex = content.indexOf('release {');
+            if (releaseBlockIndex !== -1) {
+                const nextLineIndex = content.indexOf('\n', releaseBlockIndex);
+                content = content.substring(0, nextLineIndex + 1) + '            signingConfig = signingConfigs.getByName("release")\n' + content.substring(nextLineIndex + 1);
+            }
+        }
 
         fs.writeFileSync(ktsPath, content);
         return true;
