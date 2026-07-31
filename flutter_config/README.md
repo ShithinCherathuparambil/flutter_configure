@@ -1,13 +1,18 @@
 # Flutter Config
 
-Standardized architecture and boilerplate code generator for Flutter applications. Instantly configure Clean Architecture or MVVM and generate feature layers for BLoC or Riverpod.
+Standardized architecture and boilerplate code generator for Flutter applications. Instantly configure Clean Architecture or MVVM and generate feature layers for BLoC, Riverpod, PureBind, or GetX.
+
+> **Recommended order:** run **Initialize Architecture** first, before Env/Localization/Notifications/Theme/Flavors. Re-running Initialize Architecture later is safe — it now detects and re-applies any previously initialized integrations automatically.
 
 ## Features
 
-- **Initialize Architecture**: Prompts and installs required dependencies (`dio`, `get_it`, `injectable`, `freezed`, `flutter_bloc`/`flutter_riverpod`), and sets up core network configurations.
-- **Generate Feature/Screen Stack**: Automatically generates matching data models, remote data sources, repositories, use cases, viewmodels/blocs, and UI pages.
-- **Auto Code-Gen Integration**: Automatically runs `build_runner` after generation to create Freezed classes and Injectable configurations.
-- **Explorer Sidebar Context Menu**: Create features/screens directly by right-clicking a folder in the VS Code sidebar.
+- **Initialize Architecture**: Prompts and installs required dependencies (`dio`, `get_it`, `freezed`, plus your chosen state management package), and sets up core network configurations.
+- **Generate Feature/Screen Stack**: Automatically generates matching data models, remote data sources, repositories, use cases, viewmodels/controllers/blocs, and UI pages.
+- **Auto Code-Gen Integration**: Automatically runs `build_runner` after generation to create Freezed classes.
+- **Explorer Sidebar Context Menu**: Create features/screens, or paginated lists, directly by right-clicking a folder in the VS Code sidebar.
+- **CI/CD (GitHub Actions)**: Generates a `.github/workflows/flutter.yml` running analyze/test/build.
+- **Flavors (Dev/Staging/Prod)**: Generates flavor entrypoints, a `FlavorConfig`, per-flavor `.env` files, and Android product flavors (iOS requires one manual Xcode scheme setup — see the generated `ios/Flutter/Flavors/README.md`).
+- **Paginated List**: Generates an infinite-scroll + pull-to-refresh list feature (works with any architecture/state management, since it's built on a standalone `ChangeNotifier` controller + `provider`).
 
 ---
 
@@ -22,6 +27,8 @@ Standardized architecture and boilerplate code generator for Flutter application
 4. Choose your preferred state management:
    - **BLoC**
    - **Riverpod**
+   - **PureBind**
+   - **GetX**
 
 This will automatically add dependencies to `pubspec.yaml` and construct the `lib/core/` directory containing configured DI (`lib/core/di/injection.dart`) and Dio modules (`lib/core/network/dio_configuration.dart`).
 

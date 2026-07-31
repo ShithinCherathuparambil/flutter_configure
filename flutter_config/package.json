@@ -1,8 +1,8 @@
 {
   "name": "flutter-config",
   "displayName": "Flutter Config",
-  "description": "Standardized MVVM & Clean Architecture generator with BLoC, Riverpod, PureBind, Injectable, and Freezed",
-  "version": "0.0.50",
+  "description": "Standardized MVVM & Clean Architecture generator with BLoC, Riverpod, PureBind, GetX, Freezed, CI/CD, and Flavors support",
+  "version": "0.0.51",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -60,12 +60,42 @@
       {
         "command": "flutter-config.initTests",
         "title": "Flutter Config: Initialize Tests (Unit, Widget, Integration)"
+      },
+      {
+        "command": "flutter-config.initCICD",
+        "title": "Flutter Config: Initialize CI/CD (GitHub Actions)"
+      },
+      {
+        "command": "flutter-config.initFlavors",
+        "title": "Flutter Config: Initialize Flavors (Dev/Staging/Prod)"
+      },
+      {
+        "command": "flutter-config.createPaginatedList",
+        "title": "Flutter Config: Create Paginated List (Infinite Scroll)"
+      },
+      {
+        "command": "flutter-config.createCubit",
+        "title": "Flutter Config: Create Cubit"
+      },
+      {
+        "command": "flutter-config.initMethodChannel",
+        "title": "Flutter Config: Initialize Method Channel"
       }
     ],
     "menus": {
       "explorer/context": [
         {
           "command": "flutter-config.createScreen",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation"
+        },
+        {
+          "command": "flutter-config.createPaginatedList",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation"
+        },
+        {
+          "command": "flutter-config.createCubit",
           "when": "explorerResourceIsFolder",
           "group": "navigation"
         }

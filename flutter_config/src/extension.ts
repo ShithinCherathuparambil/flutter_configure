@@ -47,7 +47,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Choose State Management
         const stateManagement = await vscode.window.showQuickPick(
-            ['BLoC', 'Riverpod', 'PureBind'],
+            ['BLoC', 'Riverpod', 'PureBind', 'GetX'],
             { placeHolder: 'Select State Management Tool', ignoreFocusOut: true }
         );
         if (!stateManagement) return;
@@ -95,7 +95,7 @@ export function activate(context: vscode.ExtensionContext) {
                 { placeHolder: 'Select Architecture Style', ignoreFocusOut: true }
             );
             stateMgmt = await vscode.window.showQuickPick(
-                ['BLoC', 'Riverpod', 'PureBind'],
+                ['BLoC', 'Riverpod', 'PureBind', 'GetX'],
                 { placeHolder: 'Select State Management Tool', ignoreFocusOut: true }
             );
             if (!arch || !stateMgmt) return;
@@ -136,7 +136,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
 
             registerDependenciesInLocator(rootPath, featureName, featurePascal, packageName, arch!, stateMgmt!, models);
-            registerRouteInGoRouter(rootPath, featureName, featurePascal, packageName, arch!);
+            registerRouteInGoRouter(rootPath, featureName, featurePascal, packageName, arch!, stateMgmt);
 
             progress.report({ message: "Running Build Runner to generate files..." });
             await runBuildRunner(rootPath);
@@ -168,7 +168,7 @@ export function activate(context: vscode.ExtensionContext) {
                 { placeHolder: 'Select Architecture Style', ignoreFocusOut: true }
             );
             stateMgmt = await vscode.window.showQuickPick(
-                ['BLoC', 'Riverpod'],
+                ['BLoC', 'Riverpod', 'PureBind', 'GetX'],
                 { placeHolder: 'Select State Management Tool', ignoreFocusOut: true }
             );
             if (!arch || !stateMgmt) return;
@@ -207,13 +207,91 @@ export function activate(context: vscode.ExtensionContext) {
             }
 
             registerDependenciesInLocator(rootPath, featureName, featurePascal, packageName, arch!, stateMgmt!, models);
-            registerRouteInGoRouter(rootPath, featureName, featurePascal, packageName, arch!);
+            registerRouteInGoRouter(rootPath, featureName, featurePascal, packageName, arch!, stateMgmt);
 
             progress.report({ message: "Running Build Runner to generate files..." });
             await runBuildRunner(rootPath);
 
             vscode.window.showInformationMessage(`Successfully generated layers and router config for existing screen ${featurePascal}!`);
         });
+    });
+
+    // Command: Create Cubit (for BLoC state management)
+    let createCubitDisposable = vscode.commands.registerCommand('flutter-config.createCubit', async (uri: vscode.Uri) => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+
+        const rootPath = workspaceFolder.uri.fsPath;
+
+        const config = vscode.workspace.getConfiguration('flutterConfig');
+        const arch = config.get<string>('architecture');
+        const stateMgmt = config.get<string>('stateManagement');
+
+        if (!arch?.includes('Clean') || stateMgmt !== 'BLoC') {
+            vscode.window.showErrorMessage('Create Cubit requires "Clean Architecture (Feature-First)" and "BLoC" as the selected setup. Run "Flutter Config: Initialize Architecture" first.');
+            return;
+        }
+
+        const cubitInput = await vscode.window.showInputBox({
+            prompt: 'Enter Cubit name (e.g. Counter, ProfileSettings)',
+            placeHolder: 'CubitName',
+            ignoreFocusOut: true
+        });
+        if (!cubitInput) return;
+
+        const cubitName = toSnakeCase(cubitInput);
+        const cubitPascal = toPascalCase(cubitInput);
+
+        const methodInput = await vscode.window.showInputBox({
+            prompt: 'Enter initial method/function name for this Cubit (e.g. increment, updateProfile)',
+            placeHolder: 'increment',
+            ignoreFocusOut: true
+        });
+        if (!methodInput) return;
+
+        const methodCamel = toCamelCase(methodInput);
+
+        let targetDir = uri ? uri.fsPath : path.join(rootPath, 'lib', 'features');
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+        }
+        const cubitDir = path.join(targetDir, 'cubit');
+        fs.mkdirSync(cubitDir, { recursive: true });
+
+        const statePath = path.join(cubitDir, `${cubitName}_state.dart`);
+        const cubitPath = path.join(cubitDir, `${cubitName}_cubit.dart`);
+
+        if (fs.existsSync(statePath) || fs.existsSync(cubitPath)) {
+            vscode.window.showErrorMessage(`Cubit "${cubitPascal}" already exists in ${cubitDir}.`);
+            return;
+        }
+
+        const stateTemplate = `part of '${cubitName}_cubit.dart';
+
+abstract class ${cubitPascal}State {}
+
+class ${cubitPascal}Initial extends ${cubitPascal}State {}
+`;
+        fs.writeFileSync(statePath, stateTemplate);
+
+        const cubitTemplate = `import 'package:flutter_bloc/flutter_bloc.dart';
+
+part '${cubitName}_state.dart';
+
+class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
+  ${cubitPascal}Cubit() : super(${cubitPascal}Initial());
+
+  Future<void> ${methodCamel}() async {
+    // TODO: Implement ${methodCamel} logic here
+  }
+}
+`;
+        fs.writeFileSync(cubitPath, cubitTemplate);
+
+        vscode.window.showInformationMessage(`Successfully created ${cubitPascal}Cubit with ${methodCamel}() in ${cubitDir}!`);
     });
 
     let generateApiActionDisposable = vscode.commands.registerCommand('flutter-config.generateApiAction', async () => {
@@ -294,21 +372,7 @@ export function activate(context: vscode.ExtensionContext) {
             }
 
             editor.edit((editBuilder) => {
-                let callSnippet = '';
-                if (stateMgmt === 'BLoC') {
-                    if (arch.includes('Clean')) {
-                        callSnippet = `context.read<${featurePascal}Bloc>().add(Execute${actionPascal}Event());`;
-                    } else {
-                        callSnippet = `context.read<${featurePascal}ViewModel>().${actionCamel}();`;
-                    }
-                } else {
-                    if (arch.includes('Clean')) {
-                        callSnippet = `ref.read(${featureCamel}NotifierProvider.notifier).${actionCamel}();`;
-                    } else {
-                        callSnippet = `ref.read(${featureCamel}ViewModelProvider.notifier).${actionCamel}();`;
-                    }
-                }
-                editBuilder.insert(position, callSnippet);
+                editBuilder.insert(position, buildActionCallSnippet(stateMgmt, arch, featureCamel, featurePascal, actionCamel, actionPascal));
             });
 
             vscode.window.showInformationMessage(`Successfully generated API Action ${actionPascal} and inserted callback trigger!`);
@@ -365,21 +429,7 @@ export function activate(context: vscode.ExtensionContext) {
             await addLocalStateAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, stateMgmt, arch, packageName);
 
             editor.edit((editBuilder) => {
-                let callSnippet = '';
-                if (stateMgmt === 'BLoC') {
-                    if (arch.includes('Clean')) {
-                        callSnippet = `context.read<${featurePascal}Bloc>().add(Execute${actionPascal}Event());`;
-                    } else {
-                        callSnippet = `context.read<${featurePascal}ViewModel>().${actionCamel}();`;
-                    }
-                } else {
-                    if (arch.includes('Clean')) {
-                        callSnippet = `ref.read(${featureCamel}NotifierProvider.notifier).${actionCamel}();`;
-                    } else {
-                        callSnippet = `ref.read(${featureCamel}ViewModelProvider.notifier).${actionCamel}();`;
-                    }
-                }
-                editBuilder.insert(position, callSnippet);
+                editBuilder.insert(position, buildActionCallSnippet(stateMgmt, arch, featureCamel, featurePascal, actionCamel, actionPascal));
             });
 
             vscode.window.showInformationMessage(`Successfully generated Local State Action ${actionPascal} and inserted callback trigger!`);
@@ -711,7 +761,7 @@ function getKeytoolEnv(): { cmd: string; env?: any } {
         if (!stateMgmt) {
             // Default to BLoC if not initialized yet
             stateMgmt = await vscode.window.showQuickPick(
-                ['BLoC', 'Riverpod'],
+                ['BLoC', 'Riverpod', 'PureBind', 'GetX'],
                 { placeHolder: 'Select State Management Tool to configure test dependencies', ignoreFocusOut: true }
             );
             if (!stateMgmt) return;
@@ -732,9 +782,183 @@ function getKeytoolEnv(): { cmd: string; env?: any } {
         });
     });
 
+    let initCICDDisposable = vscode.commands.registerCommand('flutter-config.initCICD', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+
+        const rootPath = workspaceFolder.uri.fsPath;
+
+        const buildTarget = await vscode.window.showQuickPick(
+            ['APK', 'App Bundle (AAB)', 'Both'],
+            { placeHolder: 'Select the Android build artifact for CI', ignoreFocusOut: true }
+        );
+        if (!buildTarget) return;
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Flutter Config: Initializing CI/CD workflow...",
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: "Generating GitHub Actions workflow..." });
+            generateGitHubActionsWorkflow(rootPath, buildTarget);
+
+            vscode.window.showInformationMessage("Successfully generated .github/workflows/flutter.yml!");
+        });
+    });
+
+    let initFlavorsDisposable = vscode.commands.registerCommand('flutter-config.initFlavors', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+
+        const rootPath = workspaceFolder.uri.fsPath;
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Flutter Config: Initializing Flavors (dev/staging/prod)...",
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: "Generating flavor entrypoints and configs..." });
+            generateFlavorFiles(rootPath);
+
+            progress.report({ message: "Configuring Android product flavors..." });
+            configureAndroidFlavors(rootPath);
+
+            progress.report({ message: "Configuring iOS xcconfig scaffolding..." });
+            configureIosFlavors(rootPath);
+
+            vscode.window.showInformationMessage(
+                "Successfully generated dev/staging/prod flavors! Android is fully wired. For iOS, add the generated xcconfig files as Debug-dev/Debug-staging/... configurations in Xcode (see ios/Flutter/Flavors/README.md)."
+            );
+        });
+    });
+
+    let initMethodChannelDisposable = vscode.commands.registerCommand('flutter-config.initMethodChannel', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+
+        const rootPath = workspaceFolder.uri.fsPath;
+
+        const channelInput = await vscode.window.showInputBox({
+            prompt: 'Enter Method Channel name (e.g. BatteryInfo, DeviceInfo)',
+            placeHolder: 'BatteryInfo',
+            ignoreFocusOut: true
+        });
+        if (!channelInput) return;
+
+        const methodInput = await vscode.window.showInputBox({
+            prompt: 'Enter an initial native method name to call (e.g. getBatteryLevel)',
+            placeHolder: 'getBatteryLevel',
+            ignoreFocusOut: true
+        });
+        if (!methodInput) return;
+
+        const channelSnake = toSnakeCase(channelInput);
+        const channelPascal = toPascalCase(channelInput);
+        const methodCamel = toCamelCase(methodInput);
+        const packageName = getPackageName(rootPath);
+        const channelId = `${packageName}/${channelSnake}`;
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Flutter Config: Configuring ${channelPascal} Method Channel...`,
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: "Generating Dart channel wrapper..." });
+            generateMethodChannelDartFile(rootPath, channelSnake, channelPascal, methodCamel, channelId);
+
+            progress.report({ message: "Wiring Android native handler..." });
+            const androidWired = configureAndroidMethodChannel(rootPath, channelPascal, methodCamel, channelId);
+
+            progress.report({ message: "Wiring iOS native handler..." });
+            const iosWired = configureIosMethodChannel(rootPath, methodCamel, channelId);
+
+            const notes: string[] = [];
+            if (!androidWired) notes.push('Android MainActivity not found — wire it manually.');
+            if (!iosWired) notes.push('iOS AppDelegate.swift not found — wire it manually.');
+
+            vscode.window.showInformationMessage(
+                `Successfully generated ${channelPascal} method channel ("${channelId}") with ${methodCamel}()!${notes.length ? ' ' + notes.join(' ') : ''}`
+            );
+        });
+    });
+
+    let createPaginatedListDisposable = vscode.commands.registerCommand('flutter-config.createPaginatedList', async (uri: vscode.Uri) => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+
+        const rootPath = workspaceFolder.uri.fsPath;
+
+        const featureInput = await vscode.window.showInputBox({
+            prompt: 'Enter list feature name (e.g. Products, Orders, Feed)',
+            placeHolder: 'Products',
+            ignoreFocusOut: true
+        });
+        if (!featureInput) return;
+
+        const itemModelInput = await vscode.window.showInputBox({
+            prompt: 'Enter the name of a single list item (e.g. Product, Order)',
+            placeHolder: 'Product',
+            ignoreFocusOut: true
+        });
+        if (!itemModelInput) return;
+
+        const endpoint = await vscode.window.showInputBox({
+            prompt: 'Enter the paginated API endpoint (page/limit query params will be appended)',
+            placeHolder: '/products',
+            ignoreFocusOut: true
+        });
+        if (!endpoint) return;
+
+        const inputJson = await vscode.window.showInputBox({
+            prompt: `Paste a sample JSON object for a single "${toPascalCase(itemModelInput)}" item (Optional)`,
+            placeHolder: '{"id": 1, "title": "Example"}',
+            ignoreFocusOut: true
+        });
+
+        const itemModel = parseJsonToModel(itemModelInput, inputJson);
+        const featureName = toSnakeCase(featureInput);
+        const featurePascal = toPascalCase(featureInput);
+
+        let targetDir = uri ? uri.fsPath : path.join(rootPath, 'lib', 'features');
+        if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+        }
+        const packageName = getPackageName(rootPath);
+
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Generating paginated list for ${featurePascal}...`,
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: "Adding provider dependency..." });
+            await new Promise<void>((resolve) => {
+                exec('flutter pub add provider', { cwd: rootPath }, (err, stdout, stderr) => {
+                    if (err) console.error(`Pub add provider error: ${stderr}`);
+                    resolve();
+                });
+            });
+
+            progress.report({ message: "Generating controller and page..." });
+            generatePaginatedListFiles(targetDir, featureName, featurePascal, itemModel, endpoint, packageName);
+            vscode.window.showInformationMessage(`Successfully generated paginated list (infinite scroll + pull-to-refresh) for ${featurePascal}!`);
+        });
+    });
 
     context.subscriptions.push(initDisposable);
     context.subscriptions.push(createScreenDisposable);
+    context.subscriptions.push(createCubitDisposable);
     context.subscriptions.push(generateForExistingScreenDisposable);
     context.subscriptions.push(generateApiActionDisposable);
     context.subscriptions.push(generateLocalStateActionDisposable);
@@ -746,6 +970,10 @@ function getKeytoolEnv(): { cmd: string; env?: any } {
     context.subscriptions.push(initThemeDisposable);
     context.subscriptions.push(generateSignedAppBundleDisposable);
     context.subscriptions.push(initTestsDisposable);
+    context.subscriptions.push(initCICDDisposable);
+    context.subscriptions.push(initFlavorsDisposable);
+    context.subscriptions.push(initMethodChannelDisposable);
+    context.subscriptions.push(createPaginatedListDisposable);
 }
 
 // Quick Fix Actions Provider
@@ -945,6 +1173,30 @@ export function toCamelCase(str: string): string {
         .replace(/^[A-Z]/, (c) => c.toLowerCase());
 }
 
+function buildActionCallSnippet(
+    stateMgmt: string,
+    arch: string,
+    featureCamel: string,
+    featurePascal: string,
+    actionCamel: string,
+    actionPascal: string
+): string {
+    const isClean = arch.includes('Clean');
+    if (stateMgmt === 'BLoC') {
+        return isClean
+            ? `context.read<${featurePascal}Bloc>().add(Execute${actionPascal}Event());`
+            : `context.read<${featurePascal}ViewModel>().${actionCamel}();`;
+    } else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
+        return isClean
+            ? `controller.${actionCamel}();`
+            : `viewModel.${actionCamel}();`;
+    } else {
+        return isClean
+            ? `ref.read(${featureCamel}NotifierProvider.notifier).${actionCamel}();`
+            : `ref.read(${featureCamel}ViewModelProvider.notifier).${actionCamel}();`;
+    }
+}
+
 async function installDependencies(rootPath: string, stateManagement: string): Promise<void> {
     return new Promise((resolve) => {
         const pkgs = [
@@ -960,6 +1212,8 @@ async function installDependencies(rootPath: string, stateManagement: string): P
             pkgs.push('flutter_bloc');
         } else if (stateManagement === 'PureBind') {
             pkgs.push('purebind');
+        } else if (stateManagement === 'GetX') {
+            pkgs.push('get');
         } else {
             pkgs.push('flutter_riverpod');
             pkgs.push('riverpod_annotation');
@@ -985,7 +1239,7 @@ async function installDependencies(rootPath: string, stateManagement: string): P
     });
 }
 
-function generateCoreConfig(rootPath: string) {
+export function generateCoreConfig(rootPath: string) {
     const diDir = path.join(rootPath, 'lib', 'core', 'di');
     const networkDir = path.join(rootPath, 'lib', 'core', 'network');
     const routerDir = path.join(rootPath, 'lib', 'core', 'router');
@@ -1183,7 +1437,7 @@ final GoRouter appRouter = GoRouter(
     }
 }
 
-function updateMainDartForRouterAndScreenUtil(rootPath: string, stateMgmt?: string) {
+export function updateMainDartForRouterAndScreenUtil(rootPath: string, stateMgmt?: string) {
     const mainPath = path.join(rootPath, 'lib', 'main.dart');
     if (!fs.existsSync(mainPath)) return;
 
@@ -1221,14 +1475,30 @@ class MyApp extends StatelessWidget {
 }
 `;
     fs.writeFileSync(mainPath, mainTemplate);
+
+    // Re-apply any previously initialized integrations so running "Init Architecture"
+    // after Env/Localization/Notifications/Theme doesn't wipe them out.
+    if (fs.existsSync(path.join(rootPath, '.env'))) {
+        updateMainDartForEnv(rootPath);
+    }
+    if (fs.existsSync(path.join(rootPath, 'l10n.yaml'))) {
+        updateMainDartForLocalization(rootPath);
+    }
+    if (fs.existsSync(path.join(rootPath, 'lib', 'core', 'services', 'notification_service.dart'))) {
+        updateMainDartForNotifications(rootPath);
+    }
+    if (fs.existsSync(path.join(rootPath, 'lib', 'core', 'theme', 'app_theme.dart'))) {
+        updateMainDartForTheme(rootPath);
+    }
 }
 
-function registerRouteInGoRouter(
-    rootPath: string, 
-    name: string, 
-    pascal: string, 
+export function registerRouteInGoRouter(
+    rootPath: string,
+    name: string,
+    pascal: string,
     packageName: string,
-    arch: string
+    arch: string,
+    stateMgmt?: string
 ) {
     const routerPath = path.join(rootPath, 'lib', 'core', 'router', 'app_router.dart');
     if (!fs.existsSync(routerPath)) return;
@@ -1251,10 +1521,13 @@ function registerRouteInGoRouter(
         content = `${importPath}\n${content}`;
     }
 
+    // PureBind/GetX pages hold a getIt<...> field initializer, so their constructor isn't const.
+    const supportsConst = stateMgmt !== 'PureBind' && stateMgmt !== 'GetX';
+
     // Insert GoRoute registration if not already present (using PageClass.route)
     const routeDecl = `GoRoute(
       path: ${pageClass}.route,
-      builder: (context, state) => const ${pageClass}(),
+      builder: (context, state) => ${supportsConst ? 'const ' : ''}${pageClass}(),
     ),`;
 
     if (!content.includes(`path: ${pageClass}.route`)) {
@@ -1265,7 +1538,7 @@ function registerRouteInGoRouter(
     fs.writeFileSync(routerPath, content);
 }
 
-function registerDependenciesInLocator(
+export function registerDependenciesInLocator(
     rootPath: string, 
     name: string, 
     pascal: string, 
@@ -1339,6 +1612,17 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
     ),
   );\n`;
             }
+        } else if (stateMgmt === 'GetX') {
+            const controllerCheck = `getIt.registerFactory<${pascal}Controller>`;
+            if (!content.includes(controllerCheck)) {
+                imports += `import 'package:${packageName}/features/${name}/presentation/controllers/${name}_controller.dart';\n`;
+                const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
+                registrations += `  getIt.registerFactory<${pascal}Controller>(
+    () => ${pascal}Controller(
+      ${allUsecaseArgs},
+    ),
+  );\n`;
+            }
         }
     } else {
         // MVVM
@@ -1394,7 +1678,7 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
     fs.writeFileSync(diPath, content);
 }
 
-function generateCleanArchFiles(
+export function generateCleanArchFiles(
     targetDir: string, 
     name: string, 
     pascal: string, 
@@ -1419,7 +1703,7 @@ function generateCleanArchFiles(
     
     if (stateMgmt === 'BLoC') {
         fs.mkdirSync(path.join(presDir, 'bloc'), { recursive: true });
-    } else if (stateMgmt === 'PureBind') {
+    } else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
         fs.mkdirSync(path.join(presDir, 'controllers'), { recursive: true });
     } else {
         fs.mkdirSync(path.join(presDir, 'riverpod'), { recursive: true });
@@ -1917,7 +2201,7 @@ ${controllerConstructorArgs}
     errorMessage.value = null;
     try {
       await Future.wait([
-        ${models.map(m => `get${m.modelNamePascal}UseCase.execute().catchError((_) => const ${m.modelNamePascal}Entity()),`).join('\n        ')}
+        ${models.map(m => `get${m.modelNamePascal}UseCase.execute(),`).join('\n        ')}
       ]);
     } catch (e) {
       errorMessage.value = e.toString();
@@ -1978,10 +2262,111 @@ class ${pascal}Page extends StatelessWidget {
 `
             );
         }
+    } else if (stateMgmt === 'GetX') {
+        const controllerPath = path.join(presDir, 'controllers', `${name}_controller.dart`);
+        if (!skipPageIfExists || !fs.existsSync(controllerPath)) {
+            const controllerFields = models.map(m => `  final Get${m.modelNamePascal}UseCase get${m.modelNamePascal}UseCase;
+  final Create${m.modelNamePascal}UseCase create${m.modelNamePascal}UseCase;
+  final Update${m.modelNamePascal}UseCase update${m.modelNamePascal}UseCase;
+  final Delete${m.modelNamePascal}UseCase delete${m.modelNamePascal}UseCase;`).join('\n');
+
+            const controllerConstructorArgs = models.map(m => `    required this.get${m.modelNamePascal}UseCase,
+    required this.create${m.modelNamePascal}UseCase,
+    required this.update${m.modelNamePascal}UseCase,
+    required this.delete${m.modelNamePascal}UseCase,`).join('\n');
+
+            const controllerImports = models.map(m => `import '../../domain/usecases/get_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/create_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/update_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';
+import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
+
+            fs.writeFileSync(
+                controllerPath,
+                `import 'package:get/get.dart';
+${controllerImports}
+
+class ${pascal}Controller extends GetxController {
+${controllerFields}
+
+  ${pascal}Controller({
+${controllerConstructorArgs}
+  });
+
+  final isLoading = false.obs;
+  final errorMessage = Rxn<String>();
+
+  Future<void> fetch${pascal}Data() async {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      await Future.wait([
+        ${models.map(m => `get${m.modelNamePascal}UseCase.execute(),`).join('\n        ')}
+      ]);
+    } catch (e) {
+      errorMessage.value = e.toString();
+    } finally {
+      isLoading.value = false;
+    }
+  }
+}
+`
+            );
+        }
+
+        const pagePath = path.join(presDir, 'pages', `${name}_page.dart`);
+        if (!skipPageIfExists || !fs.existsSync(pagePath) || fs.readFileSync(pagePath, 'utf8').trim() === '') {
+            fs.writeFileSync(
+                pagePath,
+                `import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../controllers/${name}_controller.dart';
+
+class ${pascal}Page extends StatefulWidget {
+  static const route = '/${name}';
+  ${pascal}Page({super.key});
+
+  @override
+  State<${pascal}Page> createState() => _${pascal}PageState();
+}
+
+class _${pascal}PageState extends State<${pascal}Page> {
+  final ${pascal}Controller controller = getIt<${pascal}Controller>();
+
+  @override
+  void initState() {
+    super.initState();
+    controller.fetch${pascal}Data();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('${pascal}')),
+      body: Obx(() {
+        if (controller.isLoading.value) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (controller.errorMessage.value != null) {
+          return Center(child: Text(controller.errorMessage.value!));
+        }
+        return const Center(child: Text('${pascal} Feature with GetX!'));
+      }),
+      floatingActionButton: FloatingActionButton(
+        onPressed: controller.fetch${pascal}Data,
+        child: const Icon(Icons.refresh),
+      ),
+    );
+  }
+}
+`
+            );
+        }
     }
 }
 
-function generateMVVMFiles(
+export function generateMVVMFiles(
     targetDir: string, 
     name: string, 
     pascal: string, 
@@ -2229,6 +2614,89 @@ class ${pascal}View extends StatelessWidget {
           },
         ),
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: viewModel.fetch${pascal}Data,
+        child: const Icon(Icons.refresh),
+      ),
+    );
+  }
+}
+`
+            );
+        }
+    } else if (stateMgmt === 'GetX') {
+        const vmPath = path.join(vmDir, `${name}_viewmodel.dart`);
+        if (!skipPageIfExists || !fs.existsSync(vmPath)) {
+            fs.writeFileSync(
+                vmPath,
+                `import 'package:get/get.dart';
+${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+
+class ${pascal}ViewModel extends GetxController {
+${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
+
+  ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
+
+  final isLoading = false.obs;
+  final errorMessage = Rxn<String>();
+
+  Future<void> fetch${pascal}Data() async {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      await Future.wait([
+        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
+      ]);
+    } catch (e) {
+      errorMessage.value = e.toString();
+    } finally {
+      isLoading.value = false;
+    }
+  }
+}
+`
+            );
+        }
+
+        const viewPath = path.join(viewsDir, `${name}_view.dart`);
+        if (!skipPageIfExists || !fs.existsSync(viewPath) || fs.readFileSync(viewPath, 'utf8').trim() === '') {
+            fs.writeFileSync(
+                viewPath,
+                `import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../viewmodels/${name}_viewmodel.dart';
+
+class ${pascal}View extends StatefulWidget {
+  static const route = '/${name}';
+  ${pascal}View({super.key});
+
+  @override
+  State<${pascal}View> createState() => _${pascal}ViewState();
+}
+
+class _${pascal}ViewState extends State<${pascal}View> {
+  final ${pascal}ViewModel viewModel = getIt<${pascal}ViewModel>();
+
+  @override
+  void initState() {
+    super.initState();
+    viewModel.fetch${pascal}Data();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('${pascal}')),
+      body: Obx(() {
+        if (viewModel.isLoading.value) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (viewModel.errorMessage.value != null) {
+          return Center(child: Text(viewModel.errorMessage.value!));
+        }
+        return const Center(child: Text('${pascal} View with GetX!'));
+      }),
       floatingActionButton: FloatingActionButton(
         onPressed: viewModel.fetch${pascal}Data,
         child: const Icon(Icons.refresh),
@@ -2500,7 +2968,7 @@ ${modelPropertiesDecl}
     try {
       await dio.${httpMethod.toLowerCase()}Request('${endpoint}');
     } catch (e) {
-      throw Exception("Failed to execute ${actionCamel}: \\$e");
+      throw Exception("Failed to execute ${actionCamel}: \$e");
     }
   }\n`;
         content = content.replace(concreteClassTag, `${concreteClassTag}\n${concreteMethod}`);
@@ -2600,6 +3068,35 @@ class ${actionPascal}UseCase {
     });\n`;
             content = content.replace(searchConstructorTag, ` : super(${featurePascal}Initial()) {${handlerCode}`);
             fs.writeFileSync(blocPath, content);
+        }
+    } else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
+        const controllerPath = path.join(presDir, 'controllers', `${featureName}_controller.dart`);
+        if (fs.existsSync(controllerPath)) {
+            let content = fs.readFileSync(controllerPath, 'utf8');
+            const importLine = `import 'package:${packageName}/features/${featureName}/domain/usecases/${toSnakeCase(actionCamel)}_usecase.dart';\n`;
+            if (!content.includes(importLine)) {
+                content = importLine + content;
+            }
+
+            const isGetX = stateMgmt === 'GetX';
+            const errorAssign = isGetX ? 'errorMessage.value' : 'errorMessage.value';
+            const methodCode = `\n  Future<void> ${actionCamel}() async {
+    try {
+      ${errorAssign} = null;
+      await getIt<${actionPascal}UseCase>().execute();
+    } catch (e) {
+      ${errorAssign} = e.toString();
+    }
+  }\n`;
+
+            const classTag = new RegExp(`(class ${featurePascal}Controller[^{]*\\{)`);
+            if (classTag.test(content) && !content.includes(`Future<void> ${actionCamel}()`)) {
+                content = content.replace(classTag, `$1${methodCode}`);
+                if (!content.includes("import 'package:get_it/get_it.dart';") && !content.includes(`import 'package:${packageName}/core/di/injection.dart';`)) {
+                    content = `import 'package:${packageName}/core/di/injection.dart';\n` + content;
+                }
+                fs.writeFileSync(controllerPath, content);
+            }
         }
     } else {
         const providerPath = path.join(presDir, 'riverpod', `${featureName}_provider.dart`);
@@ -2736,6 +3233,32 @@ class ${actionPascal}ResponseModelApiServiceImpl implements ${actionPascal}Respo
                 }
             }
         }
+    } else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
+        const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
+        if (fs.existsSync(vmPath)) {
+            let content = fs.readFileSync(vmPath, 'utf8');
+            const searchConstructor = `  ${featurePascal}ViewModel(`;
+            const methodCode = `\n  Future<void> ${actionCamel}() async {
+    try {
+      final dio = getIt<Dio>();
+      await dio.${httpMethod.toLowerCase()}('${endpoint}');
+      await fetch${featurePascal}Data();
+    } catch (e) {
+      errorMessage.value = e.toString();
+    }
+  }\n`;
+            if (content.includes(searchConstructor) && !content.includes(`Future<void> ${actionCamel}()`)) {
+                if (!content.includes("import 'package:get_it/get_it.dart';") && !content.includes(`import 'package:${packageName}/core/di/injection.dart';`)) {
+                    content = `import 'package:${packageName}/core/di/injection.dart';\n` + content;
+                }
+                const idx = content.indexOf(searchConstructor);
+                const semicolonIdx = content.indexOf(';', idx);
+                if (semicolonIdx !== -1) {
+                    content = content.slice(0, semicolonIdx + 1) + methodCode + content.slice(semicolonIdx + 1);
+                    fs.writeFileSync(vmPath, content);
+                }
+            }
+        }
     } else {
         const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
         if (fs.existsSync(vmPath)) {
@@ -2832,6 +3355,24 @@ async function addLocalStateAction(
                 content = content.replace(searchConstructorTag, ` : super(${featurePascal}Initial()) {${handlerCode}`);
                 fs.writeFileSync(blocPath, content);
             }
+        } else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
+            const controllerPath = path.join(presDir, 'controllers', `${featureName}_controller.dart`);
+            if (fs.existsSync(controllerPath)) {
+                let content = fs.readFileSync(controllerPath, 'utf8');
+                const methodCode = `\n  Future<void> ${actionCamel}() async {
+    try {
+      errorMessage.value = null;
+      // TODO: Implement local action logic here
+    } catch (e) {
+      errorMessage.value = e.toString();
+    }
+  }\n`;
+                const classTag = new RegExp(`(class ${featurePascal}Controller[^{]*\\{)`);
+                if (classTag.test(content) && !content.includes(`Future<void> ${actionCamel}()`)) {
+                    content = content.replace(classTag, `$1${methodCode}`);
+                    fs.writeFileSync(controllerPath, content);
+                }
+            }
         } else {
             const providerPath = path.join(presDir, 'riverpod', `${featureName}_provider.dart`);
             if (fs.existsSync(providerPath)) {
@@ -2871,6 +3412,28 @@ async function addLocalStateAction(
   }\n`;
                 content = content.replace(classTag, `${stateDecl}${classTag}\n${methodCode}`);
                 fs.writeFileSync(vmPath, content);
+            }
+        } else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
+            const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
+            if (fs.existsSync(vmPath)) {
+                let content = fs.readFileSync(vmPath, 'utf8');
+                const methodCode = `\n  Future<void> ${actionCamel}() async {
+    try {
+      errorMessage.value = null;
+      // TODO: Implement local action logic here
+    } catch (e) {
+      errorMessage.value = e.toString();
+    }
+  }\n`;
+                const searchConstructor = `  ${featurePascal}ViewModel(`;
+                if (content.includes(searchConstructor) && !content.includes(`Future<void> ${actionCamel}()`)) {
+                    const idx = content.indexOf(searchConstructor);
+                    const semicolonIdx = content.indexOf(';', idx);
+                    if (semicolonIdx !== -1) {
+                        content = content.slice(0, semicolonIdx + 1) + methodCode + content.slice(semicolonIdx + 1);
+                        fs.writeFileSync(vmPath, content);
+                    }
+                }
             }
         } else {
             const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
@@ -3012,11 +3575,12 @@ function updateMainDartForEnv(rootPath: string) {
     }
 
     // Update main function to load env
+    const ensureInitLine = content.includes('WidgetsFlutterBinding.ensureInitialized();') ? '' : '\n  WidgetsFlutterBinding.ensureInitialized();';
     if (content.includes('void main() {')) {
-        content = content.replace('void main() {', 'void main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  await dotenv.load(fileName: ".env");');
+        content = content.replace('void main() {', `void main() async {${ensureInitLine}\n  await dotenv.load(fileName: ".env");`);
     } else if (content.includes('void main() async {')) {
         if (!content.includes('dotenv.load')) {
-            content = content.replace('void main() async {', 'void main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n  await dotenv.load(fileName: ".env");');
+            content = content.replace('void main() async {', `void main() async {${ensureInitLine}\n  await dotenv.load(fileName: ".env");`);
         }
     }
 
@@ -3219,11 +3783,12 @@ function updateMainDartForNotifications(rootPath: string) {
 
     // Add initialization to main()
     const initSnippet = `  await Firebase.initializeApp();\n  await NotificationService().initialize();`;
+    const ensureInitLine = content.includes('WidgetsFlutterBinding.ensureInitialized();') ? '' : '\n  WidgetsFlutterBinding.ensureInitialized();';
     if (!content.includes('Firebase.initializeApp()')) {
         if (content.includes('void main() {')) {
-            content = content.replace('void main() {', `void main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n${initSnippet}`);
+            content = content.replace('void main() {', `void main() async {${ensureInitLine}\n${initSnippet}`);
         } else if (content.includes('void main() async {')) {
-            content = content.replace('void main() async {', `void main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n${initSnippet}`);
+            content = content.replace('void main() async {', `void main() async {${ensureInitLine}\n${initSnippet}`);
         }
     }
 
@@ -4035,6 +4600,574 @@ void main() {
 `;
         fs.writeFileSync(integrationTestPath, integrationTestContent);
     }
+}
+
+export function generateGitHubActionsWorkflow(rootPath: string, buildTarget: string) {
+    const workflowDir = path.join(rootPath, '.github', 'workflows');
+    fs.mkdirSync(workflowDir, { recursive: true });
+
+    let buildSteps = '';
+    if (buildTarget === 'APK' || buildTarget === 'Both') {
+        buildSteps += `
+      - name: Build APK
+        run: flutter build apk --release`;
+    }
+    if (buildTarget === 'App Bundle (AAB)' || buildTarget === 'Both') {
+        buildSteps += `
+      - name: Build App Bundle
+        run: flutter build appbundle --release`;
+    }
+
+    const workflowTemplate = `name: Flutter CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed .
+        continue-on-error: true
+
+      - name: Analyze project source
+        run: flutter analyze
+
+      - name: Run tests
+        run: flutter test
+${buildSteps}
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-outputs
+          path: build/app/outputs/**/*
+          if-no-files-found: ignore
+`;
+
+    const workflowPath = path.join(workflowDir, 'flutter.yml');
+    fs.writeFileSync(workflowPath, workflowTemplate);
+}
+
+export function generateFlavorFiles(rootPath: string) {
+    const flavors = ['dev', 'staging', 'prod'];
+    const packageName = getPackageName(rootPath);
+    const coreDir = path.join(rootPath, 'lib', 'core', 'config');
+    fs.mkdirSync(coreDir, { recursive: true });
+
+    // 1. FlavorConfig
+    const flavorConfigPath = path.join(coreDir, 'flavor_config.dart');
+    if (!fs.existsSync(flavorConfigPath)) {
+        const flavorConfigTemplate = `enum Flavor { dev, staging, prod }
+
+class FlavorConfig {
+  final Flavor flavor;
+  final String name;
+  final String apiBaseUrl;
+
+  static FlavorConfig? _instance;
+
+  factory FlavorConfig({
+    required Flavor flavor,
+    required String name,
+    required String apiBaseUrl,
+  }) {
+    _instance ??= FlavorConfig._internal(flavor, name, apiBaseUrl);
+    return _instance!;
+  }
+
+  FlavorConfig._internal(this.flavor, this.name, this.apiBaseUrl);
+
+  static FlavorConfig get instance {
+    if (_instance == null) {
+      throw Exception('FlavorConfig has not been initialized. Run one of the main_*.dart entrypoints.');
+    }
+    return _instance!;
+  }
+
+  static bool isProduction() => _instance?.flavor == Flavor.prod;
+}
+`;
+        fs.writeFileSync(flavorConfigPath, flavorConfigTemplate);
+    }
+
+    // 2. Per-flavor entrypoints
+    const flavorMeta: Record<string, { apiBaseUrl: string; appName: string }> = {
+        dev: { apiBaseUrl: 'https://dev-api.yourdomain.com/v1/', appName: 'Flutter Config App (Dev)' },
+        staging: { apiBaseUrl: 'https://staging-api.yourdomain.com/v1/', appName: 'Flutter Config App (Staging)' },
+        prod: { apiBaseUrl: 'https://api.yourdomain.com/v1/', appName: 'Flutter Config App' },
+    };
+
+    for (const flavor of flavors) {
+        const meta = flavorMeta[flavor];
+        const entrypointPath = path.join(rootPath, 'lib', `main_${flavor}.dart`);
+        if (!fs.existsSync(entrypointPath)) {
+            const entrypointTemplate = `import 'package:flutter/material.dart';
+import 'core/config/flavor_config.dart';
+import 'main.dart' as runner;
+
+void main() {
+  FlavorConfig(
+    flavor: Flavor.${flavor},
+    name: '${flavor.toUpperCase()}',
+    apiBaseUrl: '${meta.apiBaseUrl}',
+  );
+  runner.main();
+}
+`;
+            fs.writeFileSync(entrypointPath, entrypointTemplate);
+        }
+
+        // Per-flavor env file (only if flutter_dotenv env flow was already initialized)
+        const envPath = path.join(rootPath, `.env.${flavor}`);
+        if (!fs.existsSync(envPath)) {
+            fs.writeFileSync(envPath, `API_BASE_URL=${meta.apiBaseUrl}\nAPP_NAME=${meta.appName}\n`);
+        }
+    }
+
+    const gitignorePath = path.join(rootPath, '.gitignore');
+    if (fs.existsSync(gitignorePath)) {
+        let content = fs.readFileSync(gitignorePath, 'utf8');
+        if (!content.includes('.env.dev')) {
+            content += '\n# Flavor Environments\n.env.dev\n.env.staging\n.env.prod\n';
+            fs.writeFileSync(gitignorePath, content);
+        }
+    }
+}
+
+export function configureAndroidFlavors(rootPath: string) {
+    const ktsPath = path.join(rootPath, 'android', 'app', 'build.gradle.kts');
+    if (!fs.existsSync(ktsPath)) return;
+
+    let content = fs.readFileSync(ktsPath, 'utf8');
+    if (content.includes('productFlavors')) return;
+
+    const flavorsBlock = `
+    flavorDimensions += "env"
+    productFlavors {
+        create("dev") {
+            dimension = "env"
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            resValue("string", "app_name", "Flutter Config App (Dev)")
+        }
+        create("staging") {
+            dimension = "env"
+            applicationIdSuffix = ".staging"
+            versionNameSuffix = "-staging"
+            resValue("string", "app_name", "Flutter Config App (Staging)")
+        }
+        create("prod") {
+            dimension = "env"
+            resValue("string", "app_name", "Flutter Config App")
+        }
+    }
+`;
+
+    const androidIndex = content.indexOf('android {');
+    if (androidIndex !== -1) {
+        const nextBrace = content.indexOf('\n', androidIndex);
+        content = content.substring(0, nextBrace + 1) + flavorsBlock + content.substring(nextBrace + 1);
+        fs.writeFileSync(ktsPath, content);
+    }
+}
+
+export function configureIosFlavors(rootPath: string) {
+    const flavorsDir = path.join(rootPath, 'ios', 'Flutter', 'Flavors');
+    fs.mkdirSync(flavorsDir, { recursive: true });
+
+    const flavorApiUrls: Record<string, string> = {
+        Dev: 'https://dev-api.yourdomain.com/v1/',
+        Staging: 'https://staging-api.yourdomain.com/v1/',
+        Prod: 'https://api.yourdomain.com/v1/',
+    };
+
+    for (const [flavor, apiUrl] of Object.entries(flavorApiUrls)) {
+        const xcconfigPath = path.join(flavorsDir, `${flavor}.xcconfig`);
+        if (!fs.existsSync(xcconfigPath)) {
+            fs.writeFileSync(
+                xcconfigPath,
+                `// ${flavor} flavor overrides\n#include "Generated.xcconfig"\nAPI_BASE_URL = ${apiUrl}\nBUNDLE_SUFFIX = ${flavor === 'Prod' ? '' : `.${flavor.toLowerCase()}`}\n`
+            );
+        }
+    }
+
+    const readmePath = path.join(flavorsDir, 'README.md');
+    if (!fs.existsSync(readmePath)) {
+        fs.writeFileSync(
+            readmePath,
+            `# iOS Flavors\n\nXcode project files (.pbxproj) are not safe to edit programmatically, so wire these up manually once:\n\n1. Open \`ios/Runner.xcworkspace\` in Xcode.\n2. Duplicate the Debug/Release/Profile configurations for each flavor (Dev, Staging, Prod), basing each on the matching xcconfig file in this folder.\n3. Create matching Schemes (Runner-dev, Runner-staging, Runner-prod) pointing at the corresponding build configurations.\n4. Run with \`flutter run --flavor dev -t lib/main_dev.dart\` (swap dev for staging/prod).\n`
+        );
+    }
+}
+
+function findFileRecursive(dir: string, matcher: (fileName: string) => boolean): string | null {
+    if (!fs.existsSync(dir)) return null;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            const found = findFileRecursive(fullPath, matcher);
+            if (found) return found;
+        } else if (matcher(entry.name)) {
+            return fullPath;
+        }
+    }
+    return null;
+}
+
+export function generateMethodChannelDartFile(
+    rootPath: string,
+    channelSnake: string,
+    channelPascal: string,
+    methodCamel: string,
+    channelId: string
+) {
+    const platformDir = path.join(rootPath, 'lib', 'core', 'platform');
+    fs.mkdirSync(platformDir, { recursive: true });
+
+    const dartPath = path.join(platformDir, `${channelSnake}_channel.dart`);
+    if (fs.existsSync(dartPath)) return;
+
+    const dartTemplate = `import 'package:flutter/services.dart';
+
+class ${channelPascal}Channel {
+  ${channelPascal}Channel._();
+
+  static const MethodChannel _channel = MethodChannel('${channelId}');
+
+  static Future<dynamic> ${methodCamel}() async {
+    try {
+      return await _channel.invokeMethod('${methodCamel}');
+    } on PlatformException catch (e) {
+      throw Exception('Failed to call ${methodCamel}: \${e.message}');
+    }
+  }
+}
+`;
+    fs.writeFileSync(dartPath, dartTemplate);
+}
+
+export function configureAndroidMethodChannel(
+    rootPath: string,
+    channelPascal: string,
+    methodCamel: string,
+    channelId: string
+): boolean {
+    const kotlinDir = path.join(rootPath, 'android', 'app', 'src', 'main', 'kotlin');
+
+    const mainActivityPath = findFileRecursive(kotlinDir, (f) => f === 'MainActivity.kt');
+    if (mainActivityPath) {
+        let content = fs.readFileSync(mainActivityPath, 'utf8');
+        if (content.includes(`"${channelId}"`)) return true;
+
+        if (!content.includes('import io.flutter.embedding.engine.FlutterEngine')) {
+            content = content.replace(
+                /^(package [^\n]+\n)/,
+                `$1\nimport io.flutter.embedding.engine.FlutterEngine\nimport io.flutter.plugin.common.MethodChannel\n`
+            );
+        }
+
+        const handlerBlock = `\n    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "${channelId}").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "${methodCamel}" -> {
+                    // TODO: Implement ${methodCamel} native logic here
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }\n`;
+
+        if (content.includes('override fun configureFlutterEngine')) {
+            const idx = content.indexOf('override fun configureFlutterEngine');
+            const braceIdx = content.indexOf('{', idx);
+            const methodChannelSnippet = `\n        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "${channelId}").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "${methodCamel}" -> {
+                    // TODO: Implement ${methodCamel} native logic here
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }\n`;
+            content = content.slice(0, braceIdx + 1) + methodChannelSnippet + content.slice(braceIdx + 1);
+        } else {
+            const classMatch = content.match(/class MainActivity[^{]*\{/);
+            if (classMatch && classMatch.index !== undefined) {
+                const insertAt = classMatch.index + classMatch[0].length;
+                content = content.slice(0, insertAt) + handlerBlock + content.slice(insertAt);
+            }
+        }
+
+        fs.writeFileSync(mainActivityPath, content);
+        return true;
+    }
+
+    // Kotlin MainActivity not found (e.g. Java-only project) — caller must wire it manually.
+    return false;
+}
+
+export function configureIosMethodChannel(
+    rootPath: string,
+    methodCamel: string,
+    channelId: string
+): boolean {
+    const appDelegatePath = path.join(rootPath, 'ios', 'Runner', 'AppDelegate.swift');
+    if (!fs.existsSync(appDelegatePath)) return false;
+
+    let content = fs.readFileSync(appDelegatePath, 'utf8');
+    if (content.includes(`"${channelId}"`)) return true;
+
+    const handlerBlock = `    let controller = window?.rootViewController as! FlutterViewController
+    let ${methodCamel}Channel = FlutterMethodChannel(name: "${channelId}", binaryMessenger: controller.binaryMessenger)
+    ${methodCamel}Channel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "${methodCamel}":
+        // TODO: Implement ${methodCamel} native logic here
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+`;
+
+    const didFinishMatch = content.match(/didFinishLaunchingWithOptions[^{]*\{/);
+    if (didFinishMatch && didFinishMatch.index !== undefined) {
+        const insertAt = didFinishMatch.index + didFinishMatch[0].length;
+        content = content.slice(0, insertAt) + '\n' + handlerBlock + content.slice(insertAt);
+        fs.writeFileSync(appDelegatePath, content);
+        return true;
+    }
+
+    return false;
+}
+
+export function generatePaginatedListFiles(
+    targetDir: string,
+    name: string,
+    pascal: string,
+    itemModel: FeatureModel,
+    endpoint: string,
+    packageName: string
+) {
+    const featDir = path.join(targetDir, name);
+    const modelsDir = path.join(featDir, 'models');
+    const controllerDir = path.join(featDir, 'pagination');
+    const pagesDir = path.join(featDir, 'pages');
+
+    fs.mkdirSync(modelsDir, { recursive: true });
+    fs.mkdirSync(controllerDir, { recursive: true });
+    fs.mkdirSync(pagesDir, { recursive: true });
+
+    const itemPascal = itemModel.modelNamePascal;
+    const itemSnake = itemModel.modelNameSnake;
+
+    // 1. Item model (plain, no freezed dependency required)
+    const modelPath = path.join(modelsDir, `${itemSnake}_model.dart`);
+    if (!fs.existsSync(modelPath)) {
+        const propertiesDecl = itemModel.properties.map(p => `  final ${p.type} ${toCamelCase(p.name)};`).join('\n');
+        const constructorDecl = itemModel.properties.map(p => `    required this.${toCamelCase(p.name)},`).join('\n');
+        const fromJsonDecl = itemModel.properties.map(p => {
+            const camelName = toCamelCase(p.name);
+            return `      ${camelName}: json['${p.name}'],`;
+        }).join('\n');
+
+        fs.writeFileSync(
+            modelPath,
+            `class ${itemPascal}Model {
+${propertiesDecl}
+
+  ${itemPascal}Model({
+${constructorDecl}
+  });
+
+  factory ${itemPascal}Model.fromJson(Map<String, dynamic> json) {
+    return ${itemPascal}Model(
+${fromJsonDecl}
+    );
+  }
+}
+`
+        );
+    }
+
+    // 2. Paginated controller (ChangeNotifier, works regardless of chosen architecture/state mgmt)
+    const controllerPath = path.join(controllerDir, `${name}_pagination_controller.dart`);
+    fs.writeFileSync(
+        controllerPath,
+        `import 'package:flutter/foundation.dart';
+import 'package:dio/dio.dart';
+import '../models/${itemSnake}_model.dart';
+
+class ${pascal}PaginationController extends ChangeNotifier {
+  final Dio dio;
+  static const int pageSize = 20;
+
+  ${pascal}PaginationController(this.dio);
+
+  final List<${itemPascal}Model> items = [];
+  int _page = 1;
+  bool isLoading = false;
+  bool isLoadingMore = false;
+  bool hasMore = true;
+  String? errorMessage;
+
+  Future<void> loadInitial() async {
+    _page = 1;
+    hasMore = true;
+    isLoading = true;
+    errorMessage = null;
+    notifyListeners();
+
+    try {
+      final results = await _fetchPage(_page);
+      items
+        ..clear()
+        ..addAll(results);
+      hasMore = results.length == pageSize;
+    } catch (e) {
+      errorMessage = e.toString();
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadMore() async {
+    if (isLoadingMore || !hasMore) return;
+    isLoadingMore = true;
+    notifyListeners();
+
+    try {
+      final nextPage = _page + 1;
+      final results = await _fetchPage(nextPage);
+      items.addAll(results);
+      hasMore = results.length == pageSize;
+      _page = nextPage;
+    } catch (e) {
+      errorMessage = e.toString();
+    } finally {
+      isLoadingMore = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> refresh() => loadInitial();
+
+  Future<List<${itemPascal}Model>> _fetchPage(int page) async {
+    final response = await dio.get(
+      '${endpoint}',
+      queryParameters: {'page': page, 'limit': pageSize},
+    );
+    final data = response.data;
+    final List<dynamic> rawList = data is Map<String, dynamic> ? (data['data'] ?? data['items'] ?? []) : data as List<dynamic>;
+    return rawList.map((json) => ${itemPascal}Model.fromJson(json as Map<String, dynamic>)).toList();
+  }
+}
+`
+    );
+
+    // 3. Page with infinite scroll + pull-to-refresh
+    const pagePath = path.join(pagesDir, `${name}_list_page.dart`);
+    fs.writeFileSync(
+        pagePath,
+        `import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../pagination/${name}_pagination_controller.dart';
+
+class ${pascal}ListPage extends StatefulWidget {
+  static const route = '/${name}';
+  const ${pascal}ListPage({super.key});
+
+  @override
+  State<${pascal}ListPage> createState() => _${pascal}ListPageState();
+}
+
+class _${pascal}ListPageState extends State<${pascal}ListPage> {
+  final ScrollController _scrollController = ScrollController();
+  late final ${pascal}PaginationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = ${pascal}PaginationController(getIt<Dio>());
+    _controller.loadInitial();
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _controller.loadMore();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider.value(
+      value: _controller,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('${pascal}')),
+        body: Consumer<${pascal}PaginationController>(
+          builder: (context, controller, _) {
+            if (controller.isLoading) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (controller.errorMessage != null && controller.items.isEmpty) {
+              return Center(child: Text(controller.errorMessage!));
+            }
+            return RefreshIndicator(
+              onRefresh: controller.refresh,
+              child: ListView.builder(
+                controller: _scrollController,
+                itemCount: controller.items.length + (controller.hasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index >= controller.items.length) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  final item = controller.items[index];
+                  return ListTile(title: Text(item.toString()));
+                },
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+`
+    );
 }
 
 export function deactivate() {}
