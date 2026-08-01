@@ -2,7 +2,7 @@
   "name": "flutter-config",
   "displayName": "Flutter Config",
   "description": "Standardized MVVM & Clean Architecture generator with BLoC, Riverpod, PureBind, GetX, Freezed, CI/CD, and Flavors support",
-  "version": "0.0.51",
+  "version": "0.0.52",
   "engines": {
     "vscode": "^1.75.0"
   },

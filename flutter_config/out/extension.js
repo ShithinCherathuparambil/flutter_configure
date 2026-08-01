@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deactivate = exports.generatePaginatedListFiles = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.generateMVVMFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.getPackageName = exports.parseJsonToModel = exports.activate = void 0;
+exports.deactivate = exports.generatePaginatedListFiles = exports.configureIosMethodChannel = exports.configureAndroidMethodChannel = exports.generateMethodChannelDartFile = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.generateMVVMFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.getPackageName = exports.parseJsonToModel = exports.activate = void 0;
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
@@ -162,9 +162,10 @@ function activate(context) {
         }
         const rootPath = workspaceFolder.uri.fsPath;
         const config = vscode.workspace.getConfiguration('flutterConfig');
+        const arch = config.get('architecture');
         const stateMgmt = config.get('stateManagement');
-        if (stateMgmt !== 'BLoC') {
-            vscode.window.showErrorMessage('Create Cubit requires "BLoC" as the selected State Management Tool. Run "Flutter Config: Initialize Architecture" first.');
+        if (!arch?.includes('Clean') || stateMgmt !== 'BLoC') {
+            vscode.window.showErrorMessage('Create Cubit requires "Clean Architecture (Feature-First)" and "BLoC" as the selected setup. Run "Flutter Config: Initialize Architecture" first.');
             return;
         }
         const cubitInput = await vscode.window.showInputBox({
@@ -679,6 +680,51 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             vscode.window.showInformationMessage("Successfully generated dev/staging/prod flavors! Android is fully wired. For iOS, add the generated xcconfig files as Debug-dev/Debug-staging/... configurations in Xcode (see ios/Flutter/Flavors/README.md).");
         });
     });
+    let initMethodChannelDisposable = vscode.commands.registerCommand('flutter-config.initMethodChannel', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+        const rootPath = workspaceFolder.uri.fsPath;
+        const channelInput = await vscode.window.showInputBox({
+            prompt: 'Enter Method Channel name (e.g. BatteryInfo, DeviceInfo)',
+            placeHolder: 'BatteryInfo',
+            ignoreFocusOut: true
+        });
+        if (!channelInput)
+            return;
+        const methodInput = await vscode.window.showInputBox({
+            prompt: 'Enter an initial native method name to call (e.g. getBatteryLevel)',
+            placeHolder: 'getBatteryLevel',
+            ignoreFocusOut: true
+        });
+        if (!methodInput)
+            return;
+        const channelSnake = toSnakeCase(channelInput);
+        const channelPascal = toPascalCase(channelInput);
+        const methodCamel = toCamelCase(methodInput);
+        const packageName = getPackageName(rootPath);
+        const channelId = `${packageName}/${channelSnake}`;
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Flutter Config: Configuring ${channelPascal} Method Channel...`,
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: "Generating Dart channel wrapper..." });
+            generateMethodChannelDartFile(rootPath, channelSnake, channelPascal, methodCamel, channelId);
+            progress.report({ message: "Wiring Android native handler..." });
+            const androidWired = configureAndroidMethodChannel(rootPath, channelPascal, methodCamel, channelId);
+            progress.report({ message: "Wiring iOS native handler..." });
+            const iosWired = configureIosMethodChannel(rootPath, methodCamel, channelId);
+            const notes = [];
+            if (!androidWired)
+                notes.push('Android MainActivity not found — wire it manually.');
+            if (!iosWired)
+                notes.push('iOS AppDelegate.swift not found — wire it manually.');
+            vscode.window.showInformationMessage(`Successfully generated ${channelPascal} method channel ("${channelId}") with ${methodCamel}()!${notes.length ? ' ' + notes.join(' ') : ''}`);
+        });
+    });
     let createPaginatedListDisposable = vscode.commands.registerCommand('flutter-config.createPaginatedList', async (uri) => {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -754,6 +800,7 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
     context.subscriptions.push(initTestsDisposable);
     context.subscriptions.push(initCICDDisposable);
     context.subscriptions.push(initFlavorsDisposable);
+    context.subscriptions.push(initMethodChannelDisposable);
     context.subscriptions.push(createPaginatedListDisposable);
 }
 exports.activate = activate;
@@ -4245,6 +4292,127 @@ function configureIosFlavors(rootPath) {
     }
 }
 exports.configureIosFlavors = configureIosFlavors;
+function findFileRecursive(dir, matcher) {
+    if (!fs.existsSync(dir))
+        return null;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+            const found = findFileRecursive(fullPath, matcher);
+            if (found)
+                return found;
+        }
+        else if (matcher(entry.name)) {
+            return fullPath;
+        }
+    }
+    return null;
+}
+function generateMethodChannelDartFile(rootPath, channelSnake, channelPascal, methodCamel, channelId) {
+    const platformDir = path.join(rootPath, 'lib', 'core', 'platform');
+    fs.mkdirSync(platformDir, { recursive: true });
+    const dartPath = path.join(platformDir, `${channelSnake}_channel.dart`);
+    if (fs.existsSync(dartPath))
+        return;
+    const dartTemplate = `import 'package:flutter/services.dart';
+
+class ${channelPascal}Channel {
+  ${channelPascal}Channel._();
+
+  static const MethodChannel _channel = MethodChannel('${channelId}');
+
+  static Future<dynamic> ${methodCamel}() async {
+    try {
+      return await _channel.invokeMethod('${methodCamel}');
+    } on PlatformException catch (e) {
+      throw Exception('Failed to call ${methodCamel}: \${e.message}');
+    }
+  }
+}
+`;
+    fs.writeFileSync(dartPath, dartTemplate);
+}
+exports.generateMethodChannelDartFile = generateMethodChannelDartFile;
+function configureAndroidMethodChannel(rootPath, channelPascal, methodCamel, channelId) {
+    const kotlinDir = path.join(rootPath, 'android', 'app', 'src', 'main', 'kotlin');
+    const mainActivityPath = findFileRecursive(kotlinDir, (f) => f === 'MainActivity.kt');
+    if (mainActivityPath) {
+        let content = fs.readFileSync(mainActivityPath, 'utf8');
+        if (content.includes(`"${channelId}"`))
+            return true;
+        if (!content.includes('import io.flutter.embedding.engine.FlutterEngine')) {
+            content = content.replace(/^(package [^\n]+\n)/, `$1\nimport io.flutter.embedding.engine.FlutterEngine\nimport io.flutter.plugin.common.MethodChannel\n`);
+        }
+        const handlerBlock = `\n    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "${channelId}").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "${methodCamel}" -> {
+                    // TODO: Implement ${methodCamel} native logic here
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }\n`;
+        if (content.includes('override fun configureFlutterEngine')) {
+            const idx = content.indexOf('override fun configureFlutterEngine');
+            const braceIdx = content.indexOf('{', idx);
+            const methodChannelSnippet = `\n        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "${channelId}").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "${methodCamel}" -> {
+                    // TODO: Implement ${methodCamel} native logic here
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }\n`;
+            content = content.slice(0, braceIdx + 1) + methodChannelSnippet + content.slice(braceIdx + 1);
+        }
+        else {
+            const classMatch = content.match(/class MainActivity[^{]*\{/);
+            if (classMatch && classMatch.index !== undefined) {
+                const insertAt = classMatch.index + classMatch[0].length;
+                content = content.slice(0, insertAt) + handlerBlock + content.slice(insertAt);
+            }
+        }
+        fs.writeFileSync(mainActivityPath, content);
+        return true;
+    }
+    // Kotlin MainActivity not found (e.g. Java-only project) — caller must wire it manually.
+    return false;
+}
+exports.configureAndroidMethodChannel = configureAndroidMethodChannel;
+function configureIosMethodChannel(rootPath, methodCamel, channelId) {
+    const appDelegatePath = path.join(rootPath, 'ios', 'Runner', 'AppDelegate.swift');
+    if (!fs.existsSync(appDelegatePath))
+        return false;
+    let content = fs.readFileSync(appDelegatePath, 'utf8');
+    if (content.includes(`"${channelId}"`))
+        return true;
+    const handlerBlock = `    let controller = window?.rootViewController as! FlutterViewController
+    let ${methodCamel}Channel = FlutterMethodChannel(name: "${channelId}", binaryMessenger: controller.binaryMessenger)
+    ${methodCamel}Channel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "${methodCamel}":
+        // TODO: Implement ${methodCamel} native logic here
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+`;
+    const didFinishMatch = content.match(/didFinishLaunchingWithOptions[^{]*\{/);
+    if (didFinishMatch && didFinishMatch.index !== undefined) {
+        const insertAt = didFinishMatch.index + didFinishMatch[0].length;
+        content = content.slice(0, insertAt) + '\n' + handlerBlock + content.slice(insertAt);
+        fs.writeFileSync(appDelegatePath, content);
+        return true;
+    }
+    return false;
+}
+exports.configureIosMethodChannel = configureIosMethodChannel;
 function generatePaginatedListFiles(targetDir, name, pascal, itemModel, endpoint, packageName) {
     const featDir = path.join(targetDir, name);
     const modelsDir = path.join(featDir, 'models');
