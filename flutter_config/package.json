@@ -2,7 +2,7 @@
   "name": "flutter-config",
   "displayName": "Flutter Config",
   "description": "Standardized MVVM & Clean Architecture generator with BLoC, Riverpod, PureBind, GetX, Freezed, CI/CD, and Flavors support",
-  "version": "0.0.52",
+  "version": "0.0.53",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -24,6 +24,10 @@
       {
         "command": "flutter-config.generateApiAction",
         "title": "Flutter Config: Generate API Action from Callback"
+      },
+      {
+        "command": "flutter-config.generateForExistingScreen",
+        "title": "Flutter Config: Generate Missing Files for Existing Screen"
       },
       {
         "command": "flutter-config.generateLocalStateAction",

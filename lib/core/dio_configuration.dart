@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:injectable/injectable.dart';
 
 @module
@@ -22,12 +23,12 @@ abstract class DioModule {
               "your_oauth2_token_here"; // ഷെയർഡ് പ്രിഫറൻസിൽ നിന്നോ മറ്റോ എടുക്കാം
           options.headers['Authorization'] = 'Bearer $token';
 
-          print('API Request: ${options.method} ${options.path}');
+          debugPrint('API Request: ${options.method} ${options.path}');
           return handler.next(options); // കോൾ മുന്നോട്ട് പോകാൻ അനുവദിക്കുന്നു
         },
         onError: (DioException e, handler) {
           // ടോക്കൺ കാലാവധി കഴിഞ്ഞാൽ (401) ലോഗൗട്ട് ചെയ്യാനുള്ള ലോജിക് ഇവിടെ എഴുതാം
-          print('API Error: ${e.response?.statusCode}');
+          debugPrint('API Error: ${e.response?.statusCode}');
           return handler.next(e);
         },
       ),

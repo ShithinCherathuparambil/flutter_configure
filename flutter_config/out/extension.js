@@ -36,11 +36,16 @@ function activate(context) {
             cancellable: false
         }, async (progress) => {
             progress.report({ message: "Installing packages..." });
-            await installDependencies(rootPath, stateManagement);
+            const pubAddOk = await installDependencies(rootPath, stateManagement);
             progress.report({ message: "Generating core configuration..." });
             generateCoreConfig(rootPath);
             updateMainDartForRouterAndScreenUtil(rootPath, stateManagement);
-            vscode.window.showInformationMessage(`Flutter Config Initialized with ${archType} and ${stateManagement}!`);
+            if (pubAddOk) {
+                vscode.window.showInformationMessage(`Flutter Config Initialized with ${archType} and ${stateManagement}!`);
+            }
+            else {
+                vscode.window.showWarningMessage(`Flutter Config generated core files for ${archType} and ${stateManagement}, but package installation failed. Run 'flutter pub get' and check your pubspec.yaml before building.`);
+            }
         });
     });
     // 2. Command: Create New Screen
@@ -350,18 +355,21 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             cancellable: false
         }, async (progress) => {
             progress.report({ message: "Adding flutter_dotenv dependency..." });
-            await new Promise((resolve) => {
-                (0, child_process_1.exec)('flutter pub add flutter_dotenv', { cwd: rootPath }, (err, stdout, stderr) => {
-                    if (err)
-                        console.error(`Pub add env error: ${stderr}`);
-                    resolve();
-                });
-            });
+            const pubAddOk = await runPubAdd('flutter_dotenv', rootPath);
             progress.report({ message: "Configuring assets and files..." });
+            const envAlreadyExisted = fs.existsSync(path.join(rootPath, '.env'));
             configurePubspecForEnvAndL10n(rootPath);
             generateEnvFile(rootPath);
             updateMainDartForEnv(rootPath);
-            vscode.window.showInformationMessage("Successfully initialized .env configuration and integrated it into main.dart!");
+            if (!pubAddOk) {
+                vscode.window.showWarningMessage("Initialized .env configuration, but 'flutter pub add flutter_dotenv' failed. Run it manually before building.");
+            }
+            else if (envAlreadyExisted) {
+                vscode.window.showInformationMessage(".env already existed and was left unchanged; pubspec and main.dart integration were refreshed.");
+            }
+            else {
+                vscode.window.showInformationMessage("Successfully initialized .env configuration and integrated it into main.dart!");
+            }
         });
     });
     let initLocalizationDisposable = vscode.commands.registerCommand('flutter-config.initLocalization', async () => {
@@ -377,18 +385,21 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             cancellable: false
         }, async (progress) => {
             progress.report({ message: "Adding localization dependencies..." });
-            await new Promise((resolve) => {
-                (0, child_process_1.exec)('flutter pub add intl', { cwd: rootPath }, (err, stdout, stderr) => {
-                    if (err)
-                        console.error(`Pub add intl error: ${stderr}`);
-                    resolve();
-                });
-            });
+            const pubAddOk = await runPubAdd('intl', rootPath);
             progress.report({ message: "Configuring pubspec.yaml for localization..." });
+            const l10nAlreadyExisted = fs.existsSync(path.join(rootPath, 'l10n.yaml'));
             configurePubspecForEnvAndL10n(rootPath);
             generateL10nConfig(rootPath);
             updateMainDartForLocalization(rootPath);
-            vscode.window.showInformationMessage("Successfully initialized Localization configuration, ARB files, BuildContext extension, and integrated it into main.dart!");
+            if (!pubAddOk) {
+                vscode.window.showWarningMessage("Initialized Localization files, but 'flutter pub add intl' failed. Run it manually before building.");
+            }
+            else if (l10nAlreadyExisted) {
+                vscode.window.showInformationMessage("Localization config already existed and was left unchanged; pubspec and main.dart integration were refreshed.");
+            }
+            else {
+                vscode.window.showInformationMessage("Successfully initialized Localization configuration, ARB files, BuildContext extension, and integrated it into main.dart!");
+            }
         });
     });
     let initNotificationsDisposable = vscode.commands.registerCommand('flutter-config.initNotifications', async () => {
@@ -404,19 +415,22 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             cancellable: false
         }, async (progress) => {
             progress.report({ message: "Adding Firebase and notification dependencies..." });
-            await new Promise((resolve) => {
-                (0, child_process_1.exec)('flutter pub add firebase_core firebase_messaging flutter_local_notifications', { cwd: rootPath }, (err, stdout, stderr) => {
-                    if (err)
-                        console.error(`Pub add notifications error: ${stderr}`);
-                    resolve();
-                });
-            });
+            const pubAddOk = await runPubAdd('firebase_core firebase_messaging flutter_local_notifications', rootPath);
             progress.report({ message: "Configuring AndroidManifest.xml and Info.plist..." });
+            const notificationServiceAlreadyExisted = fs.existsSync(path.join(rootPath, 'lib', 'core', 'services', 'notification_service.dart'));
             configureAndroidManifestForNotifications(rootPath);
             configureInfoPlistForNotifications(rootPath);
             generateNotificationService(rootPath);
             updateMainDartForNotifications(rootPath);
-            vscode.window.showInformationMessage("Successfully configured Firebase Push & Local Notifications, updated platform files, and integrated into main.dart!");
+            if (!pubAddOk) {
+                vscode.window.showWarningMessage("Configured notification platform files, but the dependency install failed. Run 'flutter pub add firebase_core firebase_messaging flutter_local_notifications' manually.");
+            }
+            else if (notificationServiceAlreadyExisted) {
+                vscode.window.showInformationMessage("notification_service.dart already existed and was left unchanged; platform files and main.dart integration were refreshed.");
+            }
+            else {
+                vscode.window.showInformationMessage("Successfully configured Firebase Push & Local Notifications, updated platform files, and integrated into main.dart!");
+            }
         });
     });
     let initConnectivityDisposable = vscode.commands.registerCommand('flutter-config.initConnectivity', async () => {
@@ -432,16 +446,19 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             cancellable: false
         }, async (progress) => {
             progress.report({ message: "Adding connectivity_plus dependency..." });
-            await new Promise((resolve) => {
-                (0, child_process_1.exec)('flutter pub add connectivity_plus', { cwd: rootPath }, (err, stdout, stderr) => {
-                    if (err)
-                        console.error(`Pub add connectivity error: ${stderr}`);
-                    resolve();
-                });
-            });
+            const pubAddOk = await runPubAdd('connectivity_plus', rootPath);
             progress.report({ message: "Generating Connectivity Service & No Internet screen..." });
+            const connectivityAlreadyExisted = fs.existsSync(path.join(rootPath, 'lib', 'core', 'services', 'connectivity_service.dart'));
             generateConnectivityFiles(rootPath);
-            vscode.window.showInformationMessage("Successfully initialized Connectivity Service and added the No Internet Widget!");
+            if (!pubAddOk) {
+                vscode.window.showWarningMessage("Generated Connectivity Service files, but 'flutter pub add connectivity_plus' failed. Run it manually before building.");
+            }
+            else if (connectivityAlreadyExisted) {
+                vscode.window.showInformationMessage("connectivity_service.dart already existed and was left unchanged.");
+            }
+            else {
+                vscode.window.showInformationMessage("Successfully initialized Connectivity Service and added the No Internet Widget!");
+            }
         });
     });
     let initSecurityDisposable = vscode.commands.registerCommand('flutter-config.initSecurity', async () => {
@@ -457,17 +474,20 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             cancellable: false
         }, async (progress) => {
             progress.report({ message: "Adding secure storage and encryption dependencies..." });
-            await new Promise((resolve) => {
-                (0, child_process_1.exec)('flutter pub add flutter_secure_storage encrypt', { cwd: rootPath }, (err, stdout, stderr) => {
-                    if (err)
-                        console.error(`Pub add security error: ${stderr}`);
-                    resolve();
-                });
-            });
+            const pubAddOk = await runPubAdd('flutter_secure_storage encrypt crypto', rootPath);
             progress.report({ message: "Generating Secure Storage and Encryption services..." });
+            const secureStorageAlreadyExisted = fs.existsSync(path.join(rootPath, 'lib', 'core', 'services', 'secure_storage_service.dart'));
             generateSecurityFiles(rootPath);
             updateDioForSslPinning(rootPath);
-            vscode.window.showInformationMessage("Successfully initialized Security config (Secure Storage, AES, and SSL Pinning support)!");
+            if (!pubAddOk) {
+                vscode.window.showWarningMessage("Generated Security config files, but the dependency install failed. Run 'flutter pub add flutter_secure_storage encrypt crypto' manually.");
+            }
+            else if (secureStorageAlreadyExisted) {
+                vscode.window.showInformationMessage("secure_storage_service.dart already existed and was left unchanged; SSL pinning hook was refreshed in dio_configuration.dart.");
+            }
+            else {
+                vscode.window.showInformationMessage("Successfully initialized Security config (Secure Storage, AES, and SSL Pinning support)!");
+            }
         });
     });
     let initThemeDisposable = vscode.commands.registerCommand('flutter-config.initTheme', async () => {
@@ -483,13 +503,19 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             cancellable: false
         }, async (progress) => {
             progress.report({ message: "Generating App Colors, TextStyles, and ThemeData templates..." });
+            const themeAlreadyExisted = fs.existsSync(path.join(rootPath, 'lib', 'core', 'theme', 'app_colors.dart'));
             generateThemeFiles(rootPath);
             updateMainDartForTheme(rootPath);
-            vscode.window.showInformationMessage("Successfully initialized Theme configurations (app_colors, app_text_style, app_theme) and registered them in main.dart!");
+            if (themeAlreadyExisted) {
+                vscode.window.showInformationMessage("Theme files already existed and were left unchanged; main.dart registration was refreshed.");
+            }
+            else {
+                vscode.window.showInformationMessage("Successfully initialized Theme configurations (app_colors, app_text_style, app_theme) and registered them in main.dart!");
+            }
         });
     });
     function getKeytoolEnv() {
-        const defaultRes = { cmd: 'keytool', env: process.env };
+        const defaultRes = { cmd: 'keytool', cmdPath: 'keytool', env: process.env };
         let jdkHome = '';
         if (process.platform === 'darwin') {
             const paths = [
@@ -542,6 +568,7 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             env.PATH = `${binDir}${process.platform === 'win32' ? ';' : ':'}${env.PATH || ''}`;
             return {
                 cmd: `"${keytoolPath}"`,
+                cmdPath: keytoolPath,
                 env
             };
         }
@@ -565,6 +592,13 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             vscode.window.showErrorMessage('Password must be at least 6 characters.');
             return;
         }
+        const keystorePathCheck = path.join(rootPath, 'android', 'app', 'upload-keystore.jks');
+        if (fs.existsSync(keystorePathCheck)) {
+            const overwriteChoice = await vscode.window.showWarningMessage('An upload-keystore.jks already exists. Overwriting it will permanently invalidate the ability to publish updates to any app previously signed with it. Do you want to continue?', { modal: true }, 'Overwrite Keystore');
+            if (overwriteChoice !== 'Overwrite Keystore') {
+                return;
+            }
+        }
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: "Generating Signed App Bundle...",
@@ -580,11 +614,21 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
                 fs.unlinkSync(keystorePath);
             }
             const keytoolResolution = getKeytoolEnv();
-            const keytoolCmd = `${keytoolResolution.cmd} -genkey -v -keystore android/app/upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload -storepass ${passwordInput} -keypass ${passwordInput} -dname "CN=Developer, OU=AppDev, O=Organization, L=City, S=State, C=US"`;
+            const keytoolArgs = [
+                '-genkey', '-v',
+                '-keystore', 'android/app/upload-keystore.jks',
+                '-keyalg', 'RSA',
+                '-keysize', '2048',
+                '-validity', '10000',
+                '-alias', 'upload',
+                '-storepass', passwordInput,
+                '-keypass', passwordInput,
+                '-dname', 'CN=Developer, OU=AppDev, O=Organization, L=City, S=State, C=US'
+            ];
             let keytoolSuccess = true;
             let keytoolErrorMsg = '';
             await new Promise((resolve) => {
-                (0, child_process_1.exec)(keytoolCmd, { cwd: rootPath, env: keytoolResolution.env }, (err, stdout, stderr) => {
+                (0, child_process_1.execFile)(keytoolResolution.cmdPath, keytoolArgs, { cwd: rootPath, env: keytoolResolution.env }, (err, stdout, stderr) => {
                     if (err) {
                         keytoolSuccess = false;
                         keytoolErrorMsg = stderr || err.message;
@@ -772,16 +816,15 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             cancellable: false
         }, async (progress) => {
             progress.report({ message: "Adding provider dependency..." });
-            await new Promise((resolve) => {
-                (0, child_process_1.exec)('flutter pub add provider', { cwd: rootPath }, (err, stdout, stderr) => {
-                    if (err)
-                        console.error(`Pub add provider error: ${stderr}`);
-                    resolve();
-                });
-            });
+            const pubAddOk = await runPubAdd('provider', rootPath);
             progress.report({ message: "Generating controller and page..." });
             generatePaginatedListFiles(targetDir, featureName, featurePascal, itemModel, endpoint, packageName);
-            vscode.window.showInformationMessage(`Successfully generated paginated list (infinite scroll + pull-to-refresh) for ${featurePascal}!`);
+            if (pubAddOk) {
+                vscode.window.showInformationMessage(`Successfully generated paginated list (infinite scroll + pull-to-refresh) for ${featurePascal}!`);
+            }
+            else {
+                vscode.window.showWarningMessage(`Generated paginated list files for ${featurePascal}, but 'flutter pub add provider' failed. Run it manually before building.`);
+            }
         });
     });
     context.subscriptions.push(initDisposable);
@@ -969,8 +1012,22 @@ function getPackageName(rootPath) {
 }
 exports.getPackageName = getPackageName;
 // Convert helpers
+function runPubAdd(packagesArg, rootPath) {
+    return new Promise((resolve) => {
+        (0, child_process_1.exec)(`flutter pub add ${packagesArg}`, { cwd: rootPath }, (err, stdout, stderr) => {
+            if (err) {
+                console.error(`Pub add failed for "${packagesArg}": ${stderr || err.message}`);
+                resolve(false);
+            }
+            else {
+                resolve(true);
+            }
+        });
+    });
+}
 function toSnakeCase(str) {
     return str
+        .replace(/[^a-zA-Z0-9\s-_]/g, '')
         .replace(/([a-z])([A-Z])/g, '$1_$2')
         .replace(/[\s-]+/g, '_')
         .toLowerCase();
@@ -1041,8 +1098,11 @@ async function installDependencies(rootPath, stateManagement) {
         (0, child_process_1.exec)(cmd, { cwd: rootPath }, (err, stdout, stderr) => {
             if (err) {
                 console.error(`Pub add error: ${stderr}`);
+                resolve(false);
             }
-            resolve();
+            else {
+                resolve(true);
+            }
         });
     });
 }
@@ -3804,23 +3864,32 @@ function updateDioForSslPinning(rootPath) {
         return;
     let content = fs.readFileSync(dioPath, 'utf8');
     // Add imports
-    const importIo = "import 'dart:io';\nimport 'package:dio/io.dart';";
+    const importIo = "import 'dart:io';\nimport 'package:crypto/crypto.dart';\nimport 'package:dio/io.dart';";
     if (!content.includes('package:dio/io.dart')) {
         content = `${importIo}\n` + content;
     }
     // Add HttpClientAdapter configuration
     const pinningSnippet = `    // SSL Pinning Configuration (Optional per host)
+    // Set [pinnedFingerprints] below to enforce pinning for specific hosts.
+    // Until a host is added here, all valid system-trusted certificates are accepted as normal.
     dio.httpClientAdapter = IOHttpClientAdapter(
       createHttpClient: () {
         final client = HttpClient();
         client.badCertificateCallback = (X509Certificate cert, String host, int port) {
-          // Example: Pin certificate fingerprint for a secure domain
-          if (host == "api.yourdomain.com") {
-            const pinnedFingerprint = "SHA-256-FINGERPRINT-OF-YOUR-SERVER";
-            // TODO: Compare cert.sha256 fingerprint with pinnedFingerprint
-            return false; // Reject bad/non-matching certificates
+          // Map of host -> expected SHA-256 fingerprint (hex, lowercase, no separators).
+          // Example: {'api.yourdomain.com': 'a1b2c3...'}
+          const pinnedFingerprints = <String, String>{};
+
+          final pinnedFingerprint = pinnedFingerprints[host];
+          if (pinnedFingerprint == null) {
+            // No pin configured for this host: fall back to the platform's
+            // normal certificate validation result (this callback only fires
+            // for certs that already failed that validation).
+            return false;
           }
-          return true; // Allow other domains
+
+          final actualFingerprint = sha256.convert(cert.der).toString();
+          return actualFingerprint.toLowerCase() == pinnedFingerprint.toLowerCase();
         };
         return client;
       },
