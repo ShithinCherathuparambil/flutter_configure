@@ -1,7 +1,9 @@
+import 'package:injectable/injectable.dart';
 import '../../domain/entities/user_entity.dart';
 import '../../domain/repositories/user_repository.dart';
 import '../datasources/user_remote_data_source.dart';
 
+@LazySingleton(as: UserRepository)
 class UserRepositoryImpl implements UserRepository {
   final UserRemoteDataSource remoteDataSource;
   UserRepositoryImpl(this.remoteDataSource);

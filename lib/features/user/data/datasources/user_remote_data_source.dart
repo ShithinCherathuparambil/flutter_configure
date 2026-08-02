@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
+import 'package:injectable/injectable.dart';
 import '../models/user_model.dart';
 
+@lazySingleton
 class UserRemoteDataSource {
   final Dio dio;
   UserRemoteDataSource(this.dio);

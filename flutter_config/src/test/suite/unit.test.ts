@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
-import { toSnakeCase, toPascalCase, toCamelCase, parseJsonToModel, getPackageName, ModelProperty } from '../../extension';
+import { toSnakeCase, toPascalCase, toCamelCase, parseJsonToModel, getPackageName, ModelProperty, isInjectableEnabled, findProjectRoot } from '../../extension';
 
 suite('Unit Tests', () => {
     // 1. toSnakeCase
@@ -113,5 +113,48 @@ suite('Unit Tests', () => {
             }
             fs.rmdirSync(tempDirPath);
         }
+    });
+
+    // 6. isInjectableEnabled
+    test('isInjectableEnabled detects injectable package in pubspec.yaml', () => {
+        const tempDirPath = path.join(__dirname, 'temp_test_project_injectable');
+        if (!fs.existsSync(tempDirPath)) {
+            fs.mkdirSync(tempDirPath, { recursive: true });
+        }
+
+        // Case 1: no pubspec
+        assert.strictEqual(isInjectableEnabled(tempDirPath), false);
+
+        // Case 2: pubspec without injectable
+        fs.writeFileSync(path.join(tempDirPath, 'pubspec.yaml'), 'name: my_test_app\ndependencies:\n  dio: ^5.0.0\n');
+        assert.strictEqual(isInjectableEnabled(tempDirPath), false);
+
+        // Case 3: pubspec with injectable
+        fs.writeFileSync(path.join(tempDirPath, 'pubspec.yaml'), 'name: my_test_app\ndependencies:\n  dio: ^5.0.0\n  injectable: ^2.0.0\n');
+        assert.strictEqual(isInjectableEnabled(tempDirPath), true);
+
+        // Cleanup
+        fs.unlinkSync(path.join(tempDirPath, 'pubspec.yaml'));
+        fs.rmdirSync(tempDirPath);
+    });
+
+    // 7. findProjectRoot
+    test('findProjectRoot traverses up to find directory with pubspec.yaml', () => {
+        const tempDirPath = path.join(__dirname, 'temp_test_root');
+        const subDir = path.join(tempDirPath, 'lib', 'features', 'product');
+        if (!fs.existsSync(subDir)) {
+            fs.mkdirSync(subDir, { recursive: true });
+        }
+
+        // Case 1: no pubspec, should fallback/reach root (or return startDir)
+        assert.ok(findProjectRoot(subDir));
+
+        // Case 2: pubspec in temp_test_root
+        fs.writeFileSync(path.join(tempDirPath, 'pubspec.yaml'), 'name: my_test_app\n');
+        assert.strictEqual(findProjectRoot(subDir), tempDirPath);
+
+        // Cleanup
+        fs.unlinkSync(path.join(tempDirPath, 'pubspec.yaml'));
+        fs.rmSync(tempDirPath, { recursive: true });
     });
 });

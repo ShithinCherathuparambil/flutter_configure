@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deactivate = exports.generatePaginatedListFiles = exports.configureIosMethodChannel = exports.configureAndroidMethodChannel = exports.generateMethodChannelDartFile = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.generateMVVMFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.getPackageName = exports.parseJsonToModel = exports.activate = void 0;
+exports.deactivate = exports.generatePaginatedListFiles = exports.configureIosMethodChannel = exports.configureAndroidMethodChannel = exports.generateMethodChannelDartFile = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.generateMVVMFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.isInjectableEnabled = exports.findProjectRoot = exports.getPackageName = exports.parseJsonToModel = exports.activate = void 0;
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
@@ -1011,6 +1011,33 @@ function getPackageName(rootPath) {
     return packageName;
 }
 exports.getPackageName = getPackageName;
+function findProjectRoot(startDir) {
+    let current = startDir;
+    while (true) {
+        if (fs.existsSync(path.join(current, 'pubspec.yaml'))) {
+            return current;
+        }
+        const parent = path.dirname(current);
+        if (parent === current) {
+            break;
+        }
+        current = parent;
+    }
+    return startDir;
+}
+exports.findProjectRoot = findProjectRoot;
+function isInjectableEnabled(rootPath) {
+    try {
+        const pubspecPath = path.join(rootPath, 'pubspec.yaml');
+        if (fs.existsSync(pubspecPath)) {
+            const content = fs.readFileSync(pubspecPath, 'utf8');
+            return /^\s*injectable\s*:/m.test(content);
+        }
+    }
+    catch (_) { }
+    return false;
+}
+exports.isInjectableEnabled = isInjectableEnabled;
 // Convert helpers
 function runPubAdd(packagesArg, rootPath) {
     return new Promise((resolve) => {
@@ -1385,6 +1412,8 @@ function registerRouteInGoRouter(rootPath, name, pascal, packageName, arch, stat
 }
 exports.registerRouteInGoRouter = registerRouteInGoRouter;
 function registerDependenciesInLocator(rootPath, name, pascal, packageName, arch, stateMgmt, models) {
+    if (isInjectableEnabled(rootPath))
+        return;
     const diPath = path.join(rootPath, 'lib', 'core', 'di', 'injection.dart');
     if (!fs.existsSync(diPath))
         return;
@@ -1556,10 +1585,13 @@ abstract class ${m.modelNamePascal}Repository {
 }
 `);
         // 3a. Get Usecase
-        fs.writeFileSync(path.join(domainDir, 'usecases', `get_${m.modelNameSnake}_usecase.dart`), `import '../entities/${m.modelNameSnake}_entity.dart';
+        const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
+        const injectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+        const lazySingletonAnnot = useInjectable ? "@lazySingleton\n" : "";
+        fs.writeFileSync(path.join(domainDir, 'usecases', `get_${m.modelNameSnake}_usecase.dart`), `${injectableImport}import '../entities/${m.modelNameSnake}_entity.dart';
 import '../repositories/${m.modelNameSnake}_repository.dart';
 
-class Get${m.modelNamePascal}UseCase {
+${lazySingletonAnnot}class Get${m.modelNamePascal}UseCase {
   final ${m.modelNamePascal}Repository repository;
 
   Get${m.modelNamePascal}UseCase(this.repository);
@@ -1570,10 +1602,10 @@ class Get${m.modelNamePascal}UseCase {
 }
 `);
         // 3b. Create Usecase
-        fs.writeFileSync(path.join(domainDir, 'usecases', `create_${m.modelNameSnake}_usecase.dart`), `import '../entities/${m.modelNameSnake}_entity.dart';
+        fs.writeFileSync(path.join(domainDir, 'usecases', `create_${m.modelNameSnake}_usecase.dart`), `${injectableImport}import '../entities/${m.modelNameSnake}_entity.dart';
 import '../repositories/${m.modelNameSnake}_repository.dart';
 
-class Create${m.modelNamePascal}UseCase {
+${lazySingletonAnnot}class Create${m.modelNamePascal}UseCase {
   final ${m.modelNamePascal}Repository repository;
 
   Create${m.modelNamePascal}UseCase(this.repository);
@@ -1584,10 +1616,10 @@ class Create${m.modelNamePascal}UseCase {
 }
 `);
         // 3c. Update Usecase
-        fs.writeFileSync(path.join(domainDir, 'usecases', `update_${m.modelNameSnake}_usecase.dart`), `import '../entities/${m.modelNameSnake}_entity.dart';
+        fs.writeFileSync(path.join(domainDir, 'usecases', `update_${m.modelNameSnake}_usecase.dart`), `${injectableImport}import '../entities/${m.modelNameSnake}_entity.dart';
 import '../repositories/${m.modelNameSnake}_repository.dart';
 
-class Update${m.modelNamePascal}UseCase {
+${lazySingletonAnnot}class Update${m.modelNamePascal}UseCase {
   final ${m.modelNamePascal}Repository repository;
 
   Update${m.modelNamePascal}UseCase(this.repository);
@@ -1598,9 +1630,9 @@ class Update${m.modelNamePascal}UseCase {
 }
 `);
         // 3d. Delete Usecase
-        fs.writeFileSync(path.join(domainDir, 'usecases', `delete_${m.modelNameSnake}_usecase.dart`), `import '../repositories/${m.modelNameSnake}_repository.dart';
+        fs.writeFileSync(path.join(domainDir, 'usecases', `delete_${m.modelNameSnake}_usecase.dart`), `${injectableImport}import '../repositories/${m.modelNameSnake}_repository.dart';
 
-class Delete${m.modelNamePascal}UseCase {
+${lazySingletonAnnot}class Delete${m.modelNamePascal}UseCase {
   final ${m.modelNamePascal}Repository repository;
 
   Delete${m.modelNamePascal}UseCase(this.repository);
@@ -1644,7 +1676,9 @@ ${modelToEntityMapper}
 }
 `);
         // 5. Data Source
-        fs.writeFileSync(path.join(dataDir, 'datasources', `${m.modelNameSnake}_remote_data_source.dart`), `import 'package:dio/dio.dart';
+        const dsInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+        const dsInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}RemoteDataSource)\n` : "";
+        fs.writeFileSync(path.join(dataDir, 'datasources', `${m.modelNameSnake}_remote_data_source.dart`), `${dsInjectableImport}import 'package:dio/dio.dart';
 import '../models/${m.modelNameSnake}_model.dart';
 
 abstract class ${m.modelNamePascal}RemoteDataSource {
@@ -1654,7 +1688,7 @@ abstract class ${m.modelNamePascal}RemoteDataSource {
   Future<void> delete${m.modelNamePascal}(dynamic id);
 }
 
-class ${m.modelNamePascal}RemoteDataSourceImpl implements ${m.modelNamePascal}RemoteDataSource {
+${dsInjectableAnnot}class ${m.modelNamePascal}RemoteDataSourceImpl implements ${m.modelNamePascal}RemoteDataSource {
   final Dio dio;
 
   ${m.modelNamePascal}RemoteDataSourceImpl(this.dio);
@@ -1700,12 +1734,14 @@ class ${m.modelNamePascal}RemoteDataSourceImpl implements ${m.modelNamePascal}Re
 }
 `);
         // 6. Repository Impl
-        fs.writeFileSync(path.join(dataDir, 'repositories', `${m.modelNameSnake}_repository_impl.dart`), `import '../../domain/entities/${m.modelNameSnake}_entity.dart';
+        const repoInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+        const repoInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}Repository)\n` : "";
+        fs.writeFileSync(path.join(dataDir, 'repositories', `${m.modelNameSnake}_repository_impl.dart`), `${repoInjectableImport}import '../../domain/entities/${m.modelNameSnake}_entity.dart';
 import '../../domain/repositories/${m.modelNameSnake}_repository.dart';
 import '../datasources/${m.modelNameSnake}_remote_data_source.dart';
 import '../models/${m.modelNameSnake}_model.dart';
 
-class ${m.modelNamePascal}RepositoryImpl implements ${m.modelNamePascal}Repository {
+${repoInjectableAnnot}class ${m.modelNamePascal}RepositoryImpl implements ${m.modelNamePascal}Repository {
   final ${m.modelNamePascal}RemoteDataSource remoteDataSource;
 
   ${m.modelNamePascal}RepositoryImpl(this.remoteDataSource);
@@ -1797,13 +1833,16 @@ import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';`).join('
         ]);`;
                 loadedConstructorParams = models.map((m, idx) => `          ${m.modelNameCamel}Data: results[${idx}] as ${m.modelNamePascal}Entity?,`).join('\n');
             }
+            const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
+            const blocInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const blocInjectableAnnot = useInjectable ? "@injectable\n" : "";
             fs.writeFileSync(blocPath, `import 'package:flutter_bloc/flutter_bloc.dart';
-${blocImports}
+${blocInjectableImport}${blocImports}
 
 part '${name}_event.dart';
 part '${name}_state.dart';
 
-class ${pascal}Bloc extends Bloc<${pascal}Event, ${pascal}State> {
+${blocInjectableAnnot}class ${pascal}Bloc extends Bloc<${pascal}Event, ${pascal}State> {
 ${blocFields}
 
   ${pascal}Bloc({
@@ -1937,10 +1976,13 @@ import '../../domain/usecases/create_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/update_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';
 import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
+            const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
+            const controllerInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const controllerInjectableAnnot = useInjectable ? "@injectable\n" : "";
             fs.writeFileSync(controllerPath, `import 'package:purebind/purebind.dart';
-${controllerImports}
+${controllerInjectableImport}${controllerImports}
 
-class ${pascal}Controller {
+${controllerInjectableAnnot}class ${pascal}Controller {
 ${controllerFields}
 
   ${pascal}Controller({
@@ -2028,10 +2070,13 @@ import '../../domain/usecases/create_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/update_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';
 import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
+            const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
+            const controllerInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const controllerInjectableAnnot = useInjectable ? "@injectable\n" : "";
             fs.writeFileSync(controllerPath, `import 'package:get/get.dart';
-${controllerImports}
+${controllerInjectableImport}${controllerImports}
 
-class ${pascal}Controller extends GetxController {
+${controllerInjectableAnnot}class ${pascal}Controller extends GetxController {
 ${controllerFields}
 
   ${pascal}Controller({
@@ -2142,17 +2187,20 @@ ${modelPropertiesDecl}
     const servicesDir = path.join(featDir, 'services');
     fs.mkdirSync(servicesDir, { recursive: true });
     // Generate API Service for each model or feature
+    const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
     for (const m of models) {
         const servicePath = path.join(servicesDir, `${m.modelNameSnake}_api_service.dart`);
         if (!fs.existsSync(servicePath)) {
-            fs.writeFileSync(servicePath, `import 'package:dio/dio.dart';
+            const serviceInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const serviceInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}ApiService)\n` : "";
+            fs.writeFileSync(servicePath, `${serviceInjectableImport}import 'package:dio/dio.dart';
 import '../models/${m.modelNameSnake}_model.dart';
 
 abstract class ${m.modelNamePascal}ApiService {
   Future<${m.modelNamePascal}Model?> get${m.modelNamePascal}();
 }
 
-class ${m.modelNamePascal}ApiServiceImpl implements ${m.modelNamePascal}ApiService {
+${serviceInjectableAnnot}class ${m.modelNamePascal}ApiServiceImpl implements ${m.modelNamePascal}ApiService {
   final Dio dio;
 
   ${m.modelNamePascal}ApiServiceImpl(this.dio);
@@ -2177,9 +2225,12 @@ class ${m.modelNamePascal}ApiServiceImpl implements ${m.modelNamePascal}ApiServi
         if (!skipPageIfExists || !fs.existsSync(vmPath)) {
             const stateFields = models.map(m => `  final ${m.modelNamePascal}Model? ${m.modelNameCamel}Model;`).join('\n');
             const stateConstructorArgs = models.map(m => `this.${m.modelNameCamel}Model,`).join('\n');
+            const vmInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const vmInjectableAnnot = useInjectable ? "@injectable\n" : "";
             // ViewModel (as Cubit)
             fs.writeFileSync(vmPath, `import 'package:flutter_bloc/flutter_bloc.dart';
-${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+import 'package:flutter/foundation.dart';
+${vmInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
 
 abstract class ${pascal}State {}
 class ${pascal}Initial extends ${pascal}State {}
@@ -2195,7 +2246,7 @@ class ${pascal}Error extends ${pascal}State {
   ${pascal}Error(this.message);
 }
 
-class ${pascal}ViewModel extends Cubit<${pascal}State> {
+${vmInjectableAnnot}class ${pascal}ViewModel extends Cubit<${pascal}State> {
 ${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
 
   ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')}) : super(${pascal}Initial());
@@ -2257,10 +2308,12 @@ class ${pascal}View extends StatelessWidget {
     else if (stateMgmt === 'PureBind') {
         const vmPath = path.join(vmDir, `${name}_viewmodel.dart`);
         if (!skipPageIfExists || !fs.existsSync(vmPath)) {
+            const vmInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const vmInjectableAnnot = useInjectable ? "@injectable\n" : "";
             fs.writeFileSync(vmPath, `import 'package:purebind/purebind.dart';
-${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+${vmInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
 
-class ${pascal}ViewModel {
+${vmInjectableAnnot}class ${pascal}ViewModel {
 ${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
 
   ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
@@ -2333,10 +2386,12 @@ class ${pascal}View extends StatelessWidget {
     else if (stateMgmt === 'GetX') {
         const vmPath = path.join(vmDir, `${name}_viewmodel.dart`);
         if (!skipPageIfExists || !fs.existsSync(vmPath)) {
+            const vmInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const vmInjectableAnnot = useInjectable ? "@injectable\n" : "";
             fs.writeFileSync(vmPath, `import 'package:get/get.dart';
-${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+${vmInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
 
-class ${pascal}ViewModel extends GetxController {
+${vmInjectableAnnot}class ${pascal}ViewModel extends GetxController {
 ${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
 
   ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
@@ -2667,9 +2722,12 @@ ${modelPropertiesDecl}
     }
     // 4. Usecase file
     const ucPath = path.join(domainDir, 'usecases', `${toSnakeCase(actionCamel)}_usecase.dart`);
-    const ucContent = `import '../repositories/${featureName}_repository.dart';
+    const useInjectable = isInjectableEnabled(rootPath);
+    const ucInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+    const ucInjectableAnnot = useInjectable ? "@lazySingleton\n" : "";
+    const ucContent = `${ucInjectableImport}import '../repositories/${featureName}_repository.dart';
 
-class ${actionPascal}UseCase {
+${ucInjectableAnnot}class ${actionPascal}UseCase {
   final ${featurePascal}Repository repository;
 
   ${actionPascal}UseCase(this.repository);
@@ -2811,14 +2869,17 @@ ${modelPropertiesDecl}
 `);
         fs.mkdirSync(servicesDir, { recursive: true });
         const servicePath = path.join(servicesDir, `${toSnakeCase(actionCamel)}_api_service.dart`);
-        fs.writeFileSync(servicePath, `import 'package:dio/dio.dart';
+        const useInjectable = isInjectableEnabled(rootPath);
+        const serviceInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+        const serviceInjectableAnnot = useInjectable ? `@LazySingleton(as: ${actionPascal}ResponseModelApiService)\n` : "";
+        fs.writeFileSync(servicePath, `${serviceInjectableImport}import 'package:dio/dio.dart';
 import '../models/${toSnakeCase(actionCamel)}_response_model.dart';
 
 abstract class ${actionPascal}ResponseModelApiService {
   Future<${actionPascal}ResponseModel> get${actionPascal}ResponseModel();
 }
 
-class ${actionPascal}ResponseModelApiServiceImpl implements ${actionPascal}ResponseModelApiService {
+${serviceInjectableAnnot}class ${actionPascal}ResponseModelApiServiceImpl implements ${actionPascal}ResponseModelApiService {
   final Dio dio;
 
   ${actionPascal}ResponseModelApiServiceImpl(this.dio);
