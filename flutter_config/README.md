@@ -13,6 +13,7 @@ Standardized architecture and boilerplate code generator for Flutter application
 - **CI/CD (GitHub Actions)**: Generates a `.github/workflows/flutter.yml` running analyze/test/build.
 - **Flavors (Dev/Staging/Prod)**: Generates flavor entrypoints, a `FlavorConfig`, per-flavor `.env` files, and Android product flavors (iOS requires one manual Xcode scheme setup — see the generated `ios/Flutter/Flavors/README.md`).
 - **Paginated List**: Generates an infinite-scroll + pull-to-refresh list feature (works with any architecture/state management, since it's built on a standalone `ChangeNotifier` controller + `provider`).
+- **Initialize Lint Rules**: Adds `flutter_lints` and generates `analysis_options.yaml` tailored to your architecture (Clean Architecture, MVVM, MVC) and state management (BLoC, Riverpod, Provider, PureBind, GetX).
 
 ---
 
@@ -24,13 +25,27 @@ Standardized architecture and boilerplate code generator for Flutter application
 3. Choose your architecture style:
    - **Clean Architecture (Feature-First)**
    - **MVVM (Model-View-ViewModel)**
+   - **MVC (Model-View-Controller)**
 4. Choose your preferred state management:
    - **BLoC**
    - **Riverpod**
+   - **Provider**
    - **PureBind**
    - **GetX**
 
 This will automatically add dependencies to `pubspec.yaml` and construct the `lib/core/` directory containing configured DI (`lib/core/di/injection.dart`) and Dio modules (`lib/core/network/dio_configuration.dart`).
+
+### 1b. Initialize Lint Rules
+1. Open the Command Palette and select **`Flutter Config: Initialize Lint Rules`**.
+2. Choose your architecture style (uses saved workspace config if available):
+   - **Clean Architecture (Feature-First)**
+   - **MVVM (Model-View-ViewModel)**
+   - **MVC (Model-View-Controller)**
+3. Choose your state management tool:
+   - **BLoC**, **Riverpod**, **Provider**, **PureBind**, or **GetX**
+4. The extension adds `flutter_lints` and generates an `analysis_options.yaml` with architecture- and state-management-specific rules.
+
+Run **`flutter analyze`** to verify the setup.
 
 ### 2. Create a New Screen
 1. In the Explorer sidebar, **right-click** on any folder (e.g. `lib/features` or a specific feature subdirectory).

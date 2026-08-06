@@ -1,8 +1,8 @@
 {
   "name": "flutter-config",
   "displayName": "Flutter Config",
-  "description": "Standardized MVVM & Clean Architecture generator with BLoC, Riverpod, PureBind, GetX, Freezed, CI/CD, and Flavors support",
-  "version": "0.0.53",
+  "description": "Standardized MVVM, Clean Architecture & MVC generator with BLoC, Riverpod, Provider, PureBind, GetX, flutter_lints, Freezed, CI/CD, and Flavors support",
+  "version": "0.0.54",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -84,6 +84,10 @@
       {
         "command": "flutter-config.initMethodChannel",
         "title": "Flutter Config: Initialize Method Channel"
+      },
+      {
+        "command": "flutter-config.initLints",
+        "title": "Flutter Config: Initialize Lint Rules"
       }
     ],
     "menus": {
@@ -111,12 +115,12 @@
         "flutterConfig.architecture": {
           "type": "string",
           "default": "",
-          "description": "Selected architecture style (Clean Architecture or MVVM)"
+          "description": "Selected architecture style (Clean Architecture, MVVM, or MVC)"
         },
         "flutterConfig.stateManagement": {
           "type": "string",
           "default": "",
-          "description": "Selected state management tool (BLoC or Riverpod)"
+          "description": "Selected state management tool (BLoC, Riverpod, Provider, PureBind, or GetX)"
         }
       }
     }

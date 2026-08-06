@@ -1,10 +1,22 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deactivate = exports.generatePaginatedListFiles = exports.configureIosMethodChannel = exports.configureAndroidMethodChannel = exports.generateMethodChannelDartFile = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.generateMVVMFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.isInjectableEnabled = exports.findProjectRoot = exports.getPackageName = exports.parseJsonToModel = exports.activate = void 0;
+exports.deactivate = exports.configurePubspecForLints = exports.generateAnalysisOptions = exports.getStateManagementLintRules = exports.getArchitectureLintRules = exports.generatePaginatedListFiles = exports.configureIosMethodChannel = exports.configureAndroidMethodChannel = exports.generateMethodChannelDartFile = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.generateMVVMFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.isInjectableEnabled = exports.findProjectRoot = exports.getPackageName = exports.parseJsonToModel = exports.activate = exports.STATE_MANAGEMENT_OPTIONS = exports.ARCHITECTURE_OPTIONS = void 0;
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
 const child_process_1 = require("child_process");
+exports.ARCHITECTURE_OPTIONS = [
+    'Clean Architecture (Feature-First)',
+    'MVVM (Model-View-ViewModel)',
+    'MVC (Model-View-Controller)',
+];
+exports.STATE_MANAGEMENT_OPTIONS = [
+    'BLoC',
+    'Riverpod',
+    'Provider',
+    'PureBind',
+    'GetX',
+];
 function activate(context) {
     // Register Code Actions Provider for Quick Fix (lightbulb)
     context.subscriptions.push(vscode.languages.registerCodeActionsProvider({ scheme: 'file', language: 'dart' }, new ScreenCodeActionProvider(), {
@@ -19,11 +31,11 @@ function activate(context) {
         }
         const rootPath = workspaceFolder.uri.fsPath;
         // Choose Architecture
-        const archType = await vscode.window.showQuickPick(['Clean Architecture (Feature-First)', 'MVVM (Model-View-ViewModel)'], { placeHolder: 'Select Architecture Style', ignoreFocusOut: true });
+        const archType = await vscode.window.showQuickPick(exports.ARCHITECTURE_OPTIONS, { placeHolder: 'Select Architecture Style', ignoreFocusOut: true });
         if (!archType)
             return;
         // Choose State Management
-        const stateManagement = await vscode.window.showQuickPick(['BLoC', 'Riverpod', 'PureBind', 'GetX'], { placeHolder: 'Select State Management Tool', ignoreFocusOut: true });
+        const stateManagement = await vscode.window.showQuickPick(exports.STATE_MANAGEMENT_OPTIONS, { placeHolder: 'Select State Management Tool', ignoreFocusOut: true });
         if (!stateManagement)
             return;
         // Save selected choices to vscode workspace configuration
@@ -62,8 +74,8 @@ function activate(context) {
         let stateMgmt = config.get('stateManagement');
         if (!arch || !stateMgmt) {
             vscode.window.showWarningMessage('Flutter Config is not initialized yet. Please initialize first.');
-            arch = await vscode.window.showQuickPick(['Clean Architecture (Feature-First)', 'MVVM (Model-View-ViewModel)'], { placeHolder: 'Select Architecture Style', ignoreFocusOut: true });
-            stateMgmt = await vscode.window.showQuickPick(['BLoC', 'Riverpod', 'PureBind', 'GetX'], { placeHolder: 'Select State Management Tool', ignoreFocusOut: true });
+            arch = await vscode.window.showQuickPick(exports.ARCHITECTURE_OPTIONS, { placeHolder: 'Select Architecture Style', ignoreFocusOut: true });
+            stateMgmt = await vscode.window.showQuickPick(exports.STATE_MANAGEMENT_OPTIONS, { placeHolder: 'Select State Management Tool', ignoreFocusOut: true });
             if (!arch || !stateMgmt)
                 return;
         }
@@ -119,8 +131,8 @@ function activate(context) {
         let stateMgmt = config.get('stateManagement');
         if (!arch || !stateMgmt) {
             vscode.window.showWarningMessage('Flutter Config is not initialized yet. Please initialize first.');
-            arch = await vscode.window.showQuickPick(['Clean Architecture (Feature-First)', 'MVVM (Model-View-ViewModel)'], { placeHolder: 'Select Architecture Style', ignoreFocusOut: true });
-            stateMgmt = await vscode.window.showQuickPick(['BLoC', 'Riverpod', 'PureBind', 'GetX'], { placeHolder: 'Select State Management Tool', ignoreFocusOut: true });
+            arch = await vscode.window.showQuickPick(exports.ARCHITECTURE_OPTIONS, { placeHolder: 'Select Architecture Style', ignoreFocusOut: true });
+            stateMgmt = await vscode.window.showQuickPick(exports.STATE_MANAGEMENT_OPTIONS, { placeHolder: 'Select State Management Tool', ignoreFocusOut: true });
             if (!arch || !stateMgmt)
                 return;
         }
@@ -667,7 +679,7 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
         let stateMgmt = config.get('stateManagement');
         if (!stateMgmt) {
             // Default to BLoC if not initialized yet
-            stateMgmt = await vscode.window.showQuickPick(['BLoC', 'Riverpod', 'PureBind', 'GetX'], { placeHolder: 'Select State Management Tool to configure test dependencies', ignoreFocusOut: true });
+            stateMgmt = await vscode.window.showQuickPick(exports.STATE_MANAGEMENT_OPTIONS, { placeHolder: 'Select State Management Tool to configure test dependencies', ignoreFocusOut: true });
             if (!stateMgmt)
                 return;
         }
@@ -676,11 +688,19 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             title: "Flutter Config: Initializing test configurations...",
             cancellable: false
         }, async (progress) => {
-            progress.report({ message: "Adding test dependencies to pubspec.yaml..." });
-            configurePubspecForTesting(rootPath, stateMgmt);
+            progress.report({ message: "Checking and adding compatible test dependencies..." });
+            const testPackages = stateMgmt === 'BLoC'
+                ? '"dev:integration_test@{sdk: flutter}" dev:mocktail dev:bloc_test'
+                : '"dev:integration_test@{sdk: flutter}" dev:mocktail';
+            const pubAddOk = await runPubAdd(testPackages, rootPath);
             progress.report({ message: "Generating unit, widget, and integration test templates..." });
             generateTestBoilerplate(rootPath, stateMgmt);
-            vscode.window.showInformationMessage("Successfully initialized Flutter Unit, Widget, and Integration tests!");
+            if (pubAddOk) {
+                vscode.window.showInformationMessage("Successfully initialized Flutter Unit, Widget, and Integration tests!");
+            }
+            else {
+                vscode.window.showWarningMessage("Generated test templates, but compatible test dependencies could not be added. Check your pubspec constraints and run flutter pub add manually if needed.");
+            }
         });
     });
     let initCICDDisposable = vscode.commands.registerCommand('flutter-config.initCICD', async () => {
@@ -769,6 +789,48 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             vscode.window.showInformationMessage(`Successfully generated ${channelPascal} method channel ("${channelId}") with ${methodCamel}()!${notes.length ? ' ' + notes.join(' ') : ''}`);
         });
     });
+    let initLintsDisposable = vscode.commands.registerCommand('flutter-config.initLints', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+        const rootPath = workspaceFolder.uri.fsPath;
+        const pubspecPath = path.join(rootPath, 'pubspec.yaml');
+        if (!fs.existsSync(pubspecPath)) {
+            vscode.window.showErrorMessage('No pubspec.yaml found. Open a Flutter project first.');
+            return;
+        }
+        const config = vscode.workspace.getConfiguration('flutterConfig');
+        const arch = await vscode.window.showQuickPick(exports.ARCHITECTURE_OPTIONS, { placeHolder: 'Select Architecture Style for lint rules', ignoreFocusOut: true });
+        if (!arch)
+            return;
+        const stateMgmt = await vscode.window.showQuickPick(exports.STATE_MANAGEMENT_OPTIONS, { placeHolder: 'Select State Management tool for lint rules', ignoreFocusOut: true });
+        if (!stateMgmt)
+            return;
+        await config.update('architecture', arch, vscode.ConfigurationTarget.Workspace);
+        await config.update('stateManagement', stateMgmt, vscode.ConfigurationTarget.Workspace);
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Flutter Config: Initializing Lint Rules...',
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: 'Adding lint dependencies...' });
+            configurePubspecForLints(rootPath, false);
+            let pubAddOk = await runPubAdd('--dev flutter_lints', rootPath);
+            if (!pubAddOk) {
+                configurePubspecForLints(rootPath, false);
+            }
+            progress.report({ message: 'Updating analysis_options.yaml...' });
+            generateAnalysisOptions(rootPath, arch, stateMgmt);
+            if (pubAddOk || fs.readFileSync(pubspecPath, 'utf8').includes('flutter_lints:')) {
+                vscode.window.showInformationMessage(`Lint rules configured for ${arch} with ${stateMgmt}. Run "flutter analyze" to verify.`);
+            }
+            else {
+                vscode.window.showWarningMessage(`Generated analysis_options.yaml for ${arch} and ${stateMgmt}, but flutter_lints could not be added. Run "flutter pub add --dev flutter_lints" manually.`);
+            }
+        });
+    });
     let createPaginatedListDisposable = vscode.commands.registerCommand('flutter-config.createPaginatedList', async (uri) => {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
@@ -844,6 +906,7 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
     context.subscriptions.push(initCICDDisposable);
     context.subscriptions.push(initFlavorsDisposable);
     context.subscriptions.push(initMethodChannelDisposable);
+    context.subscriptions.push(initLintsDisposable);
     context.subscriptions.push(createPaginatedListDisposable);
 }
 exports.activate = activate;
@@ -1039,18 +1102,109 @@ function isInjectableEnabled(rootPath) {
 }
 exports.isInjectableEnabled = isInjectableEnabled;
 // Convert helpers
-function runPubAdd(packagesArg, rootPath) {
-    return new Promise((resolve) => {
-        (0, child_process_1.exec)(`flutter pub add ${packagesArg}`, { cwd: rootPath }, (err, stdout, stderr) => {
-            if (err) {
-                console.error(`Pub add failed for "${packagesArg}": ${stderr || err.message}`);
-                resolve(false);
+function isPubAddDryRunCompatible(stdout, stderr) {
+    const output = `${stdout}\n${stderr}`;
+    if (/version solving failed/i.test(output))
+        return false;
+    if (/is incompatible with/i.test(output))
+        return false;
+    if (/because .* depends on/i.test(output) && /so, because/i.test(output))
+        return false;
+    return /Would change \d+ dependenc/i.test(output) ||
+        /Changed \d+ dependenc/i.test(output) ||
+        /No dependencies changed/i.test(output);
+}
+function getExistingPubspecDependencyNames(rootPath) {
+    const pubspecPath = path.join(rootPath, 'pubspec.yaml');
+    const dependencies = new Set();
+    if (!fs.existsSync(pubspecPath))
+        return dependencies;
+    const content = fs.readFileSync(pubspecPath, 'utf8');
+    for (const match of content.matchAll(/^\s{2}([a-zA-Z_][a-zA-Z0-9_]*)\s*:/gm)) {
+        dependencies.add(match[1]);
+    }
+    return dependencies;
+}
+function packageNameFromPubAddToken(token) {
+    const withoutSection = token.replace(/^(dev|override):/, '');
+    return withoutSection.split('@')[0].trim();
+}
+function tokenizePubAddArgs(packagesArg) {
+    const tokens = [];
+    const tokenPattern = /"([^"]+)"|'([^']+)'|(\S+)/g;
+    let match;
+    while ((match = tokenPattern.exec(packagesArg)) !== null) {
+        tokens.push(match[1] || match[2] || match[3]);
+    }
+    return tokens;
+}
+function quotePubAddToken(token) {
+    if (!/\s/.test(token))
+        return token;
+    return `"${token.replace(/"/g, '\\"')}"`;
+}
+function filterAlreadyAddedPackages(packagesArg, rootPath) {
+    const existingDependencies = getExistingPubspecDependencyNames(rootPath);
+    const tokens = tokenizePubAddArgs(packagesArg);
+    const normalPackages = [];
+    const devSectionPackages = [];
+    const devPrefixedPackages = [];
+    let devMode = false;
+    for (const token of tokens) {
+        if (token === '--dev') {
+            devMode = true;
+            continue;
+        }
+        if (token.startsWith('-'))
+            continue;
+        const packageName = packageNameFromPubAddToken(token);
+        if (!packageName || existingDependencies.has(packageName))
+            continue;
+        if (devMode || token.startsWith('dev:')) {
+            if (token.startsWith('dev:')) {
+                devPrefixedPackages.push(token);
             }
             else {
-                resolve(true);
+                devSectionPackages.push(token);
             }
+        }
+        else {
+            normalPackages.push(token);
+        }
+    }
+    return [
+        ...normalPackages.map(quotePubAddToken),
+        ...devPrefixedPackages.map(quotePubAddToken),
+        ...(devSectionPackages.length ? ['--dev', ...devSectionPackages.map(quotePubAddToken)] : []),
+    ].join(' ');
+}
+function runFlutterPubAdd(packagesArg, rootPath, dryRun) {
+    return new Promise((resolve) => {
+        const dryRunFlag = dryRun ? '--dry-run ' : '';
+        (0, child_process_1.exec)(`flutter pub add ${dryRunFlag}--no-example ${packagesArg}`, { cwd: rootPath }, (err, stdout, stderr) => {
+            resolve({
+                ok: !err,
+                stdout,
+                stderr: stderr || (err ? err.message : ''),
+            });
         });
     });
+}
+async function runPubAdd(packagesArg, rootPath) {
+    const filteredPackagesArg = filterAlreadyAddedPackages(packagesArg, rootPath);
+    if (!filteredPackagesArg)
+        return true;
+    const dryRun = await runFlutterPubAdd(filteredPackagesArg, rootPath, true);
+    if (!dryRun.ok && !isPubAddDryRunCompatible(dryRun.stdout, dryRun.stderr)) {
+        console.error(`Pub add compatibility check failed for "${filteredPackagesArg}": ${dryRun.stderr || dryRun.stdout}`);
+        return false;
+    }
+    const actual = await runFlutterPubAdd(filteredPackagesArg, rootPath, false);
+    if (!actual.ok) {
+        console.error(`Pub add failed for "${filteredPackagesArg}": ${actual.stderr || actual.stdout}`);
+        return false;
+    }
+    return true;
 }
 function toSnakeCase(str) {
     return str
@@ -1109,6 +1263,9 @@ async function installDependencies(rootPath, stateManagement) {
         else if (stateManagement === 'GetX') {
             pkgs.push('get');
         }
+        else if (stateManagement === 'Provider') {
+            pkgs.push('provider');
+        }
         else {
             pkgs.push('flutter_riverpod');
             pkgs.push('riverpod_annotation');
@@ -1121,16 +1278,8 @@ async function installDependencies(rootPath, stateManagement) {
         if (stateManagement === 'Riverpod') {
             devPkgs.push('riverpod_generator');
         }
-        const cmd = `flutter pub add ${pkgs.join(' ')} --dev ${devPkgs.join(' ')}`;
-        (0, child_process_1.exec)(cmd, { cwd: rootPath }, (err, stdout, stderr) => {
-            if (err) {
-                console.error(`Pub add error: ${stderr}`);
-                resolve(false);
-            }
-            else {
-                resolve(true);
-            }
-        });
+        const packagesArg = `${pkgs.join(' ')} --dev ${devPkgs.join(' ')}`;
+        runPubAdd(packagesArg, rootPath).then(resolve);
     });
 }
 function generateCoreConfig(rootPath) {
@@ -4730,6 +4879,309 @@ class _${pascal}ListPageState extends State<${pascal}ListPage> {
 `);
 }
 exports.generatePaginatedListFiles = generatePaginatedListFiles;
+function getArchitectureLintRules(architecture) {
+    const indent = (lines) => lines.map((line) => `    ${line}`).join('\n');
+    if (architecture.includes('Clean')) {
+        return indent([
+            '# Clean Architecture (Feature-First)',
+            '# Expected structure: lib/features/<feature>/{data,domain,presentation}/',
+            '# Keep domain layer free of Flutter imports; depend on abstractions, not implementations.',
+            'prefer_relative_imports: true',
+            'avoid_relative_lib_imports: true',
+            'depend_on_referenced_packages: true',
+            'implementation_imports: false',
+            'directives_ordering: true',
+        ]);
+    }
+    if (architecture.includes('MVVM')) {
+        return indent([
+            '# MVVM (Model-View-ViewModel)',
+            '# Expected structure: lib/features/<feature>/{models,services,viewmodels,views}/',
+            '# Keep business logic in ViewModels; Views should only bind UI to state.',
+            'prefer_relative_imports: true',
+            'sort_constructors_first: true',
+            'use_setters_to_change_properties: false',
+            'depend_on_referenced_packages: true',
+        ]);
+    }
+    if (architecture.includes('MVC')) {
+        return indent([
+            '# MVC (Model-View-Controller)',
+            '# Expected structure: lib/features/<feature>/{models,controllers,views}/',
+            '# Controllers handle input and update Models; Views remain presentation-only.',
+            'prefer_relative_imports: true',
+            'sort_constructors_first: true',
+            'depend_on_referenced_packages: true',
+            'use_setters_to_change_properties: false',
+        ]);
+    }
+    return indent([
+        '# General architecture conventions',
+        'prefer_relative_imports: true',
+        'depend_on_referenced_packages: true',
+    ]);
+}
+exports.getArchitectureLintRules = getArchitectureLintRules;
+function getStateManagementLintRules(stateManagement) {
+    const indent = (lines) => lines.map((line) => `    ${line}`).join('\n');
+    switch (stateManagement) {
+        case 'BLoC':
+            return indent([
+                '# BLoC state management',
+                '# Keep events, states, and blocs in presentation/bloc/ (Clean) or viewmodels/ (MVVM).',
+                '# Recommended: add bloc_lint via custom_lint for stricter BLoC-specific checks.',
+                'avoid_print: true',
+                'cancel_subscriptions: true',
+                'close_sinks: true',
+                'prefer_final_fields: true',
+            ]);
+        case 'Riverpod':
+            return indent([
+                '# Riverpod state management',
+                '# Prefer @riverpod code generation; keep providers in presentation/riverpod/.',
+                '# Recommended: add riverpod_lint via custom_lint for provider-specific checks.',
+                'avoid_print: true',
+                'prefer_final_fields: true',
+                'prefer_const_constructors: true',
+            ]);
+        case 'Provider':
+            return indent([
+                '# Provider state management',
+                '# Use ChangeNotifier or Provider subclasses; expose via MultiProvider at app root.',
+                'avoid_print: true',
+                'prefer_final_fields: true',
+                'use_key_in_widget_constructors: true',
+                'prefer_const_constructors: true',
+            ]);
+        case 'PureBind':
+            return indent([
+                '# PureBind state management',
+                '# Keep controllers in presentation/controllers/ and bind UI reactively.',
+                'avoid_print: true',
+                'prefer_final_fields: true',
+                'prefer_const_constructors: true',
+            ]);
+        case 'GetX':
+            return indent([
+                '# GetX state management',
+                '# Keep GetxController classes in presentation/controllers/; avoid mixing routing and business logic.',
+                'avoid_print: true',
+                'prefer_const_constructors: true',
+                'prefer_final_fields: true',
+            ]);
+        default:
+            return indent([
+                '# State management best practices',
+                'avoid_print: true',
+                'prefer_final_fields: true',
+            ]);
+    }
+}
+exports.getStateManagementLintRules = getStateManagementLintRules;
+function dedupeLintRuleSection(section, seenRules) {
+    const output = [];
+    for (const line of section.split('\n')) {
+        const ruleMatch = line.match(/^\s*([a-zA-Z][a-zA-Z0-9_]*):\s*(true|false)$/);
+        if (!ruleMatch) {
+            output.push(line);
+            continue;
+        }
+        const ruleName = ruleMatch[1];
+        if (seenRules.has(ruleName))
+            continue;
+        seenRules.add(ruleName);
+        output.push(line);
+    }
+    return output.join('\n');
+}
+const FLUTTER_CONFIG_LINT_START = '    # >>> Flutter Config lint rules';
+const FLUTTER_CONFIG_LINT_END = '    # <<< Flutter Config lint rules';
+const FLUTTER_CONFIG_LINT_START_PATTERN = /^\s*# >>> Flutter Config lint rules\s*$/;
+const FLUTTER_CONFIG_LINT_END_PATTERN = /^\s*# <<< Flutter Config lint rules\s*$/;
+function collectLintRuleNames(content) {
+    const withoutGeneratedBlock = removeFlutterConfigManagedBlocks(content);
+    const rules = new Set();
+    for (const line of withoutGeneratedBlock.split('\n')) {
+        const ruleMatch = line.match(/^\s*([a-zA-Z][a-zA-Z0-9_]*):\s*(true|false)$/);
+        if (ruleMatch)
+            rules.add(ruleMatch[1]);
+    }
+    return rules;
+}
+function removeFlutterConfigManagedBlocks(content) {
+    const lines = content.split('\n');
+    const output = [];
+    let skippingManagedBlock = false;
+    for (const line of lines) {
+        if (FLUTTER_CONFIG_LINT_START_PATTERN.test(line)) {
+            skippingManagedBlock = true;
+            continue;
+        }
+        if (FLUTTER_CONFIG_LINT_END_PATTERN.test(line)) {
+            skippingManagedBlock = false;
+            continue;
+        }
+        if (skippingManagedBlock)
+            continue;
+        output.push(line);
+    }
+    return output.join('\n');
+}
+function removeLegacyFlutterConfigLintSections(content) {
+    const lines = content.split('\n');
+    const output = [];
+    let skippingLegacySection = false;
+    for (const line of lines) {
+        const isLegacySectionStart = /^\s*# --- (Shared Flutter best practices|Architecture: .+|State Management: .+) ---\s*$/.test(line);
+        if (isLegacySectionStart) {
+            skippingLegacySection = true;
+            continue;
+        }
+        if (skippingLegacySection) {
+            const isLegacyComment = /^\s*#/.test(line);
+            const isLegacyRule = /^\s*[a-zA-Z][a-zA-Z0-9_]*:\s*(true|false)\s*$/.test(line);
+            const isLegacyBareRule = /^\s*[a-zA-Z][a-zA-Z0-9_]*\s*$/.test(line);
+            const isBlank = /^\s*$/.test(line);
+            if (isLegacyComment || isLegacyRule || isLegacyBareRule || isBlank) {
+                continue;
+            }
+            skippingLegacySection = false;
+        }
+        output.push(line);
+    }
+    return output.join('\n');
+}
+function buildFlutterConfigLintBlock(architecture, stateManagement, existingRules = new Set()) {
+    const indent = (lines) => lines.map((line) => `    ${line}`).join('\n');
+    const seenRules = new Set(Array.from(existingRules));
+    const sharedRules = dedupeLintRuleSection(indent([
+        'always_declare_return_types: true',
+        'avoid_empty_else: true',
+        'avoid_unnecessary_containers: true',
+        'prefer_const_constructors: true',
+        'prefer_const_declarations: true',
+        'prefer_final_fields: true',
+        'prefer_final_locals: true',
+        'require_trailing_commas: true',
+        'sort_child_properties_last: true',
+        'use_key_in_widget_constructors: true',
+    ]), seenRules);
+    const archRules = dedupeLintRuleSection(getArchitectureLintRules(architecture), seenRules);
+    const stateRules = dedupeLintRuleSection(getStateManagementLintRules(stateManagement), seenRules);
+    return `${FLUTTER_CONFIG_LINT_START}
+    # Architecture: ${architecture}
+    # State Management: ${stateManagement}
+
+    # --- Shared Flutter best practices ---
+${sharedRules}
+
+    # --- Architecture: ${architecture} ---
+${archRules}
+
+    # --- State Management: ${stateManagement} ---
+${stateRules}
+${FLUTTER_CONFIG_LINT_END}`;
+}
+function removeIncompatibleCustomLintPlugin(content) {
+    const lines = content.split('\n');
+    const output = [];
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^\s{4}-\s*custom_lint\s*$/.test(line)) {
+            continue;
+        }
+        if (/^\s{2}plugins:\s*$/.test(line)) {
+            const nextLine = lines[i + 1];
+            if (!nextLine || /^\S/.test(nextLine) || /^\s{2}\S/.test(nextLine)) {
+                continue;
+            }
+        }
+        output.push(line);
+    }
+    return output.join('\n');
+}
+function generateAnalysisOptions(rootPath, architecture, stateManagement) {
+    const analysisPath = path.join(rootPath, 'analysis_options.yaml');
+    if (!fs.existsSync(analysisPath)) {
+        const content = `# Generated by Flutter Config
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+    - "**/*.config.dart"
+    - "**/*.mocks.dart"
+    - "build/**"
+    - "lib/generated/**"
+
+linter:
+  rules:
+${buildFlutterConfigLintBlock(architecture, stateManagement)}
+`;
+        fs.writeFileSync(analysisPath, content);
+        return;
+    }
+    let content = fs.readFileSync(analysisPath, 'utf8');
+    content = removeFlutterConfigManagedBlocks(content);
+    content = removeLegacyFlutterConfigLintSections(content);
+    content = removeIncompatibleCustomLintPlugin(content);
+    const existingRules = collectLintRuleNames(content);
+    const generatedBlock = buildFlutterConfigLintBlock(architecture, stateManagement, existingRules);
+    if (!content.includes('include: package:flutter_lints/flutter.yaml')) {
+        content = `include: package:flutter_lints/flutter.yaml\n\n${content}`;
+    }
+    if (content.match(/^linter:\s*$/m) && content.match(/^\s{2}rules:\s*$/m)) {
+        content = content.replace(/^(\s{2}rules:\s*\n)/m, `$1${generatedBlock}\n`);
+    }
+    else if (content.match(/^linter:\s*$/m)) {
+        content = content.replace(/^(linter:\s*\n)/m, `$1  rules:\n${generatedBlock}\n`);
+    }
+    else {
+        const needsTrailingNewline = content.length > 0 && !content.endsWith('\n');
+        content = `${content}${needsTrailingNewline ? '\n' : ''}\nlinter:\n  rules:\n${generatedBlock}\n`;
+    }
+    fs.writeFileSync(analysisPath, content);
+}
+exports.generateAnalysisOptions = generateAnalysisOptions;
+function configurePubspecForLints(rootPath, addFlutterLints = true) {
+    const pubspecPath = path.join(rootPath, 'pubspec.yaml');
+    if (!fs.existsSync(pubspecPath))
+        return false;
+    let content = fs.readFileSync(pubspecPath, 'utf8');
+    const cleanedContent = content
+        .replace(/^\s*custom_lint\s*:\s*.*\n?/m, '')
+        .replace(/^\s*clean_arch_lint\s*:\s*.*\n?/m, '')
+        .replace(/^\s*clean_architecture_lints\s*:\s*.*\n?/m, '');
+    const removedIncompatibleDependency = cleanedContent !== content;
+    content = cleanedContent;
+    const lintDependencies = [
+        'flutter_lints: ^6.0.0',
+    ];
+    const missingDependencies = addFlutterLints ? lintDependencies.filter((dependency) => {
+        const dependencyName = dependency.split(':')[0];
+        return !new RegExp(`^\\s*${dependencyName}\\s*:`, 'm').test(content);
+    }) : [];
+    if (missingDependencies.length === 0) {
+        if (removedIncompatibleDependency) {
+            fs.writeFileSync(pubspecPath, content);
+            return true;
+        }
+        return false;
+    }
+    const devDepTag = 'dev_dependencies:';
+    if (!content.includes(devDepTag)) {
+        const needsTrailingNewline = content.length > 0 && !content.endsWith('\n');
+        content = `${content}${needsTrailingNewline ? '\n' : ''}\n${devDepTag}\n  ${missingDependencies.join('\n  ')}\n`;
+        fs.writeFileSync(pubspecPath, content);
+        return true;
+    }
+    content = content.replace(devDepTag, `${devDepTag}\n  ${missingDependencies.join('\n  ')}`);
+    fs.writeFileSync(pubspecPath, content);
+    return true;
+}
+exports.configurePubspecForLints = configurePubspecForLints;
 function deactivate() { }
 exports.deactivate = deactivate;
 //# sourceMappingURL=extension.js.map

@@ -31,7 +31,8 @@ suite('Integration Tests', () => {
             'flutter-config.initSecurity',
             'flutter-config.initTheme',
             'flutter-config.generateSignedAppBundle',
-            'flutter-config.initTests'
+            'flutter-config.initTests',
+            'flutter-config.initLints'
         ];
 
         for (const cmd of expectedCommands) {
