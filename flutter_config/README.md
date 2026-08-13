@@ -13,6 +13,7 @@ Standardized architecture and boilerplate code generator for Flutter application
 - **CI/CD (GitHub Actions)**: Generates a `.github/workflows/flutter.yml` running analyze/test/build.
 - **Flavors (Dev/Staging/Prod)**: Generates flavor entrypoints, a `FlavorConfig`, per-flavor `.env` files, and Android product flavors (iOS requires one manual Xcode scheme setup — see the generated `ios/Flutter/Flavors/README.md`).
 - **Paginated List**: Generates an infinite-scroll + pull-to-refresh list feature (works with any architecture/state management, since it's built on a standalone `ChangeNotifier` controller + `provider`).
+- **Method Channel**: Generates a Dart MethodChannel wrapper and wires Android Kotlin/Java plus iOS Swift native handlers for an initial native method.
 - **Initialize Lint Rules**: Adds `flutter_lints` and generates `analysis_options.yaml` tailored to your architecture (Clean Architecture, MVVM, MVC) and state management (BLoC, Riverpod, Provider, PureBind, GetX).
 
 ---
@@ -68,6 +69,19 @@ Run **`flutter analyze`** to verify the setup.
    - Create a dedicated use case (e.g. `UpdateProfileUseCase`) and register it in the dependency injection container.
    - Wire the event/notifier handler in your state management layer (BLoC/Riverpod).
    - Automatically insert the execution trigger (e.g. `context.read<BannerBloc>().add(ExecuteDeleteBannerEvent());` or `ref.read(bannerNotifierProvider.notifier).deleteBanner();`) directly at your cursor's position inside the callback!
+
+---
+
+### 4. Initialize Method Channel
+1. Open the Command Palette and select **`Flutter Config: Initialize Method Channel`**.
+2. Enter a channel name, for example `BatteryInfo`.
+3. Enter the first native method name, for example `getBatteryLevel`.
+4. The extension generates:
+   - Dart wrapper: `lib/core/platform/battery_info_channel.dart`
+   - Android native handler in Kotlin or Java `MainActivity`
+   - iOS native handler in `ios/Runner/AppDelegate.swift`
+
+The generated native methods return `null` by default. Replace the TODO blocks with your platform-specific implementation.
 
 ---
 

@@ -32,6 +32,11 @@ suite('Integration Tests', () => {
             'flutter-config.initTheme',
             'flutter-config.generateSignedAppBundle',
             'flutter-config.initTests',
+            'flutter-config.initCICD',
+            'flutter-config.initFlavors',
+            'flutter-config.createPaginatedList',
+            'flutter-config.createCubit',
+            'flutter-config.initMethodChannel',
             'flutter-config.initLints'
         ];
 

@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
-import { toSnakeCase, toPascalCase, toCamelCase, parseJsonToModel, getPackageName, ModelProperty, isInjectableEnabled, findProjectRoot, getArchitectureLintRules, getStateManagementLintRules, generateAnalysisOptions, configurePubspecForLints, ARCHITECTURE_OPTIONS, STATE_MANAGEMENT_OPTIONS } from '../../extension';
+import { toSnakeCase, toPascalCase, toCamelCase, parseJsonToModel, getPackageName, ModelProperty, isInjectableEnabled, findProjectRoot, getArchitectureLintRules, getStateManagementLintRules, generateAnalysisOptions, configurePubspecForLints, generateMethodChannelDartFile, configureAndroidMethodChannel, configureIosMethodChannel, ARCHITECTURE_OPTIONS, STATE_MANAGEMENT_OPTIONS } from '../../extension';
 
 suite('Unit Tests', () => {
     // 1. toSnakeCase
@@ -662,6 +662,122 @@ suite('Unit Tests', () => {
         assert.ok(!content.includes('custom_lint:'));
         assert.ok(!content.includes('clean_arch_lint:'));
         assert.ok(!content.includes('clean_architecture_lints:'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    test('generateMethodChannelDartFile creates a Dart wrapper', () => {
+        const tempDirPath = path.join(__dirname, 'temp_method_channel_dart_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        generateMethodChannelDartFile(
+            tempDirPath,
+            'battery_info',
+            'BatteryInfo',
+            'getBatteryLevel',
+            'test_app/battery_info'
+        );
+
+        const content = fs.readFileSync(
+            path.join(tempDirPath, 'lib', 'core', 'platform', 'battery_info_channel.dart'),
+            'utf8'
+        );
+        assert.ok(content.includes("MethodChannel('test_app/battery_info')"));
+        assert.ok(content.includes('static Future<dynamic> getBatteryLevel()'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    test('configureAndroidMethodChannel wires Kotlin MainActivity', () => {
+        const tempDirPath = path.join(__dirname, 'temp_method_channel_kotlin_test');
+        const androidDir = path.join(tempDirPath, 'android', 'app', 'src', 'main', 'kotlin', 'com', 'example', 'app');
+        fs.mkdirSync(androidDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(androidDir, 'MainActivity.kt'),
+            [
+                'package com.example.app',
+                '',
+                'import io.flutter.embedding.android.FlutterActivity',
+                '',
+                'class MainActivity: FlutterActivity() {',
+                '}',
+                ''
+            ].join('\n')
+        );
+
+        const wired = configureAndroidMethodChannel(tempDirPath, 'BatteryInfo', 'getBatteryLevel', 'test_app/battery_info');
+        assert.strictEqual(wired, true);
+
+        const content = fs.readFileSync(path.join(androidDir, 'MainActivity.kt'), 'utf8');
+        assert.ok(content.includes('import io.flutter.embedding.engine.FlutterEngine'));
+        assert.ok(content.includes('import io.flutter.plugin.common.MethodChannel'));
+        assert.ok(content.includes('override fun configureFlutterEngine'));
+        assert.ok(content.includes('"test_app/battery_info"'));
+        assert.ok(content.includes('"getBatteryLevel"'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    test('configureAndroidMethodChannel wires Java MainActivity', () => {
+        const tempDirPath = path.join(__dirname, 'temp_method_channel_java_test');
+        const androidDir = path.join(tempDirPath, 'android', 'app', 'src', 'main', 'java', 'com', 'example', 'app');
+        fs.mkdirSync(androidDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(androidDir, 'MainActivity.java'),
+            [
+                'package com.example.app;',
+                '',
+                'import io.flutter.embedding.android.FlutterActivity;',
+                '',
+                'public class MainActivity extends FlutterActivity {',
+                '}',
+                ''
+            ].join('\n')
+        );
+
+        const wired = configureAndroidMethodChannel(tempDirPath, 'BatteryInfo', 'getBatteryLevel', 'test_app/battery_info');
+        assert.strictEqual(wired, true);
+
+        const content = fs.readFileSync(path.join(androidDir, 'MainActivity.java'), 'utf8');
+        assert.ok(content.includes('import io.flutter.embedding.engine.FlutterEngine;'));
+        assert.ok(content.includes('import io.flutter.plugin.common.MethodChannel;'));
+        assert.ok(content.includes('public void configureFlutterEngine'));
+        assert.ok(content.includes('"test_app/battery_info"'));
+        assert.ok(content.includes('"getBatteryLevel"'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    test('configureIosMethodChannel wires AppDelegate.swift', () => {
+        const tempDirPath = path.join(__dirname, 'temp_method_channel_ios_test');
+        const iosDir = path.join(tempDirPath, 'ios', 'Runner');
+        fs.mkdirSync(iosDir, { recursive: true });
+        fs.writeFileSync(
+            path.join(iosDir, 'AppDelegate.swift'),
+            [
+                'import Flutter',
+                'import UIKit',
+                '',
+                '@main',
+                '@objc class AppDelegate: FlutterAppDelegate {',
+                '  override func application(',
+                '    _ application: UIApplication,',
+                '    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?',
+                '  ) -> Bool {',
+                '    GeneratedPluginRegistrant.register(with: self)',
+                '    return super.application(application, didFinishLaunchingWithOptions: launchOptions)',
+                '  }',
+                '}',
+                ''
+            ].join('\n')
+        );
+
+        const wired = configureIosMethodChannel(tempDirPath, 'getBatteryLevel', 'test_app/battery_info');
+        assert.strictEqual(wired, true);
+
+        const content = fs.readFileSync(path.join(iosDir, 'AppDelegate.swift'), 'utf8');
+        assert.ok(content.includes('FlutterMethodChannel(name: "test_app/battery_info"'));
+        assert.ok(content.includes('case "getBatteryLevel":'));
 
         fs.rmSync(tempDirPath, { recursive: true });
     });

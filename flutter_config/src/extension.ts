@@ -5190,11 +5190,15 @@ export function configureAndroidMethodChannel(
         let content = fs.readFileSync(mainActivityPath, 'utf8');
         if (content.includes(`"${channelId}"`)) return true;
 
+        const kotlinImports: string[] = [];
         if (!content.includes('import io.flutter.embedding.engine.FlutterEngine')) {
-            content = content.replace(
-                /^(package [^\n]+\n)/,
-                `$1\nimport io.flutter.embedding.engine.FlutterEngine\nimport io.flutter.plugin.common.MethodChannel\n`
-            );
+            kotlinImports.push('import io.flutter.embedding.engine.FlutterEngine');
+        }
+        if (!content.includes('import io.flutter.plugin.common.MethodChannel')) {
+            kotlinImports.push('import io.flutter.plugin.common.MethodChannel');
+        }
+        if (kotlinImports.length) {
+            content = content.replace(/^(package [^\n]+\n)/, `$1\n${kotlinImports.join('\n')}\n`);
         }
 
         const handlerBlock = `\n    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -5235,8 +5239,55 @@ export function configureAndroidMethodChannel(
         return true;
     }
 
-    // Kotlin MainActivity not found (e.g. Java-only project) — caller must wire it manually.
-    return false;
+    const javaDir = path.join(rootPath, 'android', 'app', 'src', 'main', 'java');
+    const javaMainActivityPath = findFileRecursive(javaDir, (f) => f === 'MainActivity.java');
+    if (!javaMainActivityPath) return false;
+
+    let content = fs.readFileSync(javaMainActivityPath, 'utf8');
+    if (content.includes(`"${channelId}"`)) return true;
+
+    const javaImports: string[] = [];
+    if (!content.includes('import io.flutter.embedding.engine.FlutterEngine;')) {
+        javaImports.push('import io.flutter.embedding.engine.FlutterEngine;');
+    }
+    if (!content.includes('import io.flutter.plugin.common.MethodChannel;')) {
+        javaImports.push('import io.flutter.plugin.common.MethodChannel;');
+    }
+    if (!content.includes('import androidx.annotation.NonNull;')) {
+        javaImports.push('import androidx.annotation.NonNull;');
+    }
+    if (javaImports.length) {
+        content = content.replace(/^(package [^\n]+;\n)/, `$1\n${javaImports.join('\n')}\n`);
+    }
+
+    const javaSnippet = `\n        new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), "${channelId}").setMethodCallHandler((call, result) -> {
+            if ("${methodCamel}".equals(call.method)) {
+                // TODO: Implement ${methodCamel} native logic here
+                result.success(null);
+            } else {
+                result.notImplemented();
+            }
+        });\n`;
+
+    if (content.includes('configureFlutterEngine')) {
+        const idx = content.indexOf('configureFlutterEngine');
+        const braceIdx = content.indexOf('{', idx);
+        if (braceIdx !== -1) {
+            content = content.slice(0, braceIdx + 1) + javaSnippet + content.slice(braceIdx + 1);
+        }
+    } else {
+        const handlerBlock = `\n    @Override
+    public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
+        super.configureFlutterEngine(flutterEngine);${javaSnippet}    }\n`;
+        const classMatch = content.match(/class MainActivity[^{]*\{/);
+        if (classMatch && classMatch.index !== undefined) {
+            const insertAt = classMatch.index + classMatch[0].length;
+            content = content.slice(0, insertAt) + handlerBlock + content.slice(insertAt);
+        }
+    }
+
+    fs.writeFileSync(javaMainActivityPath, content);
+    return true;
 }
 
 export function configureIosMethodChannel(
