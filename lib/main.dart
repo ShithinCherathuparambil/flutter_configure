@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'features/user/presentation/bloc/user_bloc.dart';
 import 'features/user/presentation/pages/user_profile_screen.dart';
-import 'locator.dart';
+import 'core/di/injection.dart';
 
 void main() {
-  setupLocator(); // Setup dependency injection
+  configureDependencies(); // Setup dependency injection
   runApp(const CleanArchitectureApp());
 }
 
@@ -22,7 +22,7 @@ class CleanArchitectureApp extends StatelessWidget {
         useMaterial3: true,
       ),
       home: BlocProvider(
-        create: (context) => locator<UserBloc>(),
+        create: (context) => getIt<UserBloc>(),
         child: const UserProfileScreen(),
       ),
     );

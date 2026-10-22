@@ -1,7 +1,15 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
-import { toSnakeCase, toPascalCase, toCamelCase, parseJsonToModel, getPackageName, ModelProperty, isInjectableEnabled, findProjectRoot, getArchitectureLintRules, getStateManagementLintRules, generateAnalysisOptions, configurePubspecForLints, generateMethodChannelDartFile, configureAndroidMethodChannel, configureIosMethodChannel, ARCHITECTURE_OPTIONS, STATE_MANAGEMENT_OPTIONS } from '../../extension';
+import { 
+    toSnakeCase, toPascalCase, toCamelCase, parseJsonToModel, getPackageName, 
+    ModelProperty, FeatureModel, isInjectableEnabled, findProjectRoot, 
+    getArchitectureLintRules, getStateManagementLintRules, generateAnalysisOptions, 
+    configurePubspecForLints, generateMethodChannelDartFile, configureAndroidMethodChannel, 
+    configureIosMethodChannel, ARCHITECTURE_OPTIONS, STATE_MANAGEMENT_OPTIONS,
+    generateCleanArchFiles, generateMVVMFiles, generateCoreConfig, registerDependenciesInLocator,
+    generateMVCFiles, getExtendedEnv
+} from '../../extension';
 
 suite('Unit Tests', () => {
     // 1. toSnakeCase
@@ -781,4 +789,297 @@ suite('Unit Tests', () => {
 
         fs.rmSync(tempDirPath, { recursive: true });
     });
+
+    // 16. generateCleanArchFiles BLoC with models uses sound null-safety
+    test('generateCleanArchFiles BLoC with models uses sound null-safety .then before catchError', () => {
+        const tempDirPath = path.join(__dirname, 'temp_clean_arch_bloc_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        const testModel: FeatureModel = {
+            modelName: 'User',
+            modelNamePascal: 'User',
+            modelNameCamel: 'user',
+            modelNameSnake: 'user',
+            properties: [
+                { name: 'id', type: 'int' },
+                { name: 'name', type: 'String' }
+            ]
+        };
+
+        generateCleanArchFiles(tempDirPath, 'user', 'User', 'user', 'BLoC', [testModel], 'test_app');
+
+        const blocContent = fs.readFileSync(path.join(tempDirPath, 'user', 'presentation', 'bloc', 'user_bloc.dart'), 'utf8');
+        assert.ok(blocContent.includes('.then<UserEntity?>((v) => v).catchError((_) => null)'));
+        assert.ok(blocContent.includes('emit(UserLoaded('));
+
+        const stateContent = fs.readFileSync(path.join(tempDirPath, 'user', 'presentation', 'bloc', 'user_state.dart'), 'utf8');
+        assert.ok(stateContent.includes('final UserEntity? userData;'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 17. generateCleanArchFiles BLoC with 0 models generates clean constructor
+    test('generateCleanArchFiles BLoC with 0 models generates clean constructor without empty parameters', () => {
+        const tempDirPath = path.join(__dirname, 'temp_clean_arch_zero_models_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        generateCleanArchFiles(tempDirPath, 'profile', 'Profile', 'profile', 'BLoC', [], 'test_app');
+
+        const stateContent = fs.readFileSync(path.join(tempDirPath, 'profile', 'presentation', 'bloc', 'profile_state.dart'), 'utf8');
+        assert.ok(stateContent.includes('class ProfileLoaded extends ProfileState {}'));
+        assert.ok(!stateContent.includes('ProfileLoaded({\n  })'));
+
+        const blocContent = fs.readFileSync(path.join(tempDirPath, 'profile', 'presentation', 'bloc', 'profile_bloc.dart'), 'utf8');
+        assert.ok(blocContent.includes('ProfileBloc() : super(ProfileInitial())'));
+        assert.ok(blocContent.includes('emit(ProfileLoaded());'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 18. generateCleanArchFiles Riverpod with models uses sound null-safety
+    test('generateCleanArchFiles Riverpod with models uses sound null-safety .then before catchError', () => {
+        const tempDirPath = path.join(__dirname, 'temp_clean_arch_riverpod_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        const testModel: FeatureModel = {
+            modelName: 'Item',
+            modelNamePascal: 'Item',
+            modelNameCamel: 'item',
+            modelNameSnake: 'item',
+            properties: [{ name: 'id', type: 'int' }]
+        };
+
+        generateCleanArchFiles(tempDirPath, 'catalog', 'Catalog', 'catalog', 'Riverpod', [testModel], 'test_app');
+
+        const providerContent = fs.readFileSync(path.join(tempDirPath, 'catalog', 'presentation', 'riverpod', 'catalog_provider.dart'), 'utf8');
+        assert.ok(providerContent.includes('.then<ItemEntity?>((v) => v).catchError((_) => null)'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 19. generateCleanArchFiles Provider generates notifier and list-builder page
+    test('generateCleanArchFiles Provider generates notifier and ListenableBuilder page', () => {
+        const tempDirPath = path.join(__dirname, 'temp_clean_arch_provider_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        const testModel: FeatureModel = {
+            modelName: 'Product',
+            modelNamePascal: 'Product',
+            modelNameCamel: 'product',
+            modelNameSnake: 'product',
+            properties: [{ name: 'name', type: 'String' }]
+        };
+
+        generateCleanArchFiles(tempDirPath, 'shop', 'Shop', 'shop', 'Provider', [testModel], 'test_app');
+
+        const notifierPath = path.join(tempDirPath, 'shop', 'presentation', 'provider', 'shop_notifier.dart');
+        assert.ok(fs.existsSync(notifierPath));
+        const notifierContent = fs.readFileSync(notifierPath, 'utf8');
+        assert.ok(notifierContent.includes('class ShopNotifier extends ChangeNotifier'));
+        assert.ok(notifierContent.includes('final GetProductUseCase getProductUseCase;'));
+        assert.ok(notifierContent.includes('Future<void> fetchShopData() async'));
+
+        const pagePath = path.join(tempDirPath, 'shop', 'presentation', 'pages', 'shop_page.dart');
+        assert.ok(fs.existsSync(pagePath));
+        const pageContent = fs.readFileSync(pagePath, 'utf8');
+        assert.ok(pageContent.includes('ListenableBuilder('));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 20. generateCoreConfig with injectable pubspec produces @module DioModule and @InjectableInit
+    test('generateCoreConfig with injectable pubspec produces @module DioModule and @InjectableInit', () => {
+        const tempDirPath = path.join(__dirname, 'temp_core_config_injectable_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+        fs.writeFileSync(path.join(tempDirPath, 'pubspec.yaml'), 'name: test_injectable_app\ndependencies:\n  injectable: ^3.0.0\n');
+
+        generateCoreConfig(tempDirPath);
+
+        const dioContent = fs.readFileSync(path.join(tempDirPath, 'lib', 'core', 'network', 'dio_configuration.dart'), 'utf8');
+        assert.ok(dioContent.includes('@module'));
+        assert.ok(dioContent.includes('abstract class DioModule'));
+        assert.ok(dioContent.includes('@lazySingleton'));
+
+        const diContent = fs.readFileSync(path.join(tempDirPath, 'lib', 'core', 'di', 'injection.dart'), 'utf8');
+        assert.ok(diContent.includes('@InjectableInit()'));
+        assert.ok(diContent.includes('void configureDependencies() => getIt.init();'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 21. registerDependenciesInLocator with 0 models produces valid constructor call
+    test('registerDependenciesInLocator with 0 models produces valid constructor call', () => {
+        const tempDirPath = path.join(__dirname, 'temp_di_zero_models_test');
+        const diDir = path.join(tempDirPath, 'lib', 'core', 'di');
+        fs.mkdirSync(diDir, { recursive: true });
+        fs.writeFileSync(path.join(tempDirPath, 'pubspec.yaml'), 'name: test_app\n');
+        fs.writeFileSync(
+            path.join(diDir, 'injection.dart'),
+            'import "package:get_it/get_it.dart";\nfinal getIt = GetIt.instance;\nvoid setupLocator() {\n  // Features register tag (DO NOT REMOVE)\n}\n'
+        );
+
+        registerDependenciesInLocator(tempDirPath, 'order', 'Order', 'test_app', 'Clean Architecture (Feature-First)', 'BLoC', []);
+
+        const diContent = fs.readFileSync(path.join(diDir, 'injection.dart'), 'utf8');
+        assert.ok(diContent.includes('() => OrderBloc(),'));
+        assert.ok(!diContent.includes('() => OrderBloc(\n      ,\n    )'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 22. registerDependenciesInLocator with Provider registers notifier in locator
+    test('registerDependenciesInLocator with Provider registers notifier in locator', () => {
+        const tempDirPath = path.join(__dirname, 'temp_di_provider_test');
+        const diDir = path.join(tempDirPath, 'lib', 'core', 'di');
+        fs.mkdirSync(diDir, { recursive: true });
+        fs.writeFileSync(path.join(tempDirPath, 'pubspec.yaml'), 'name: test_app\n');
+        fs.writeFileSync(
+            path.join(diDir, 'injection.dart'),
+            'import "package:get_it/get_it.dart";\nfinal getIt = GetIt.instance;\nvoid setupLocator() {\n  // Features register tag (DO NOT REMOVE)\n}\n'
+        );
+
+        registerDependenciesInLocator(tempDirPath, 'settings', 'Settings', 'test_app', 'Clean Architecture (Feature-First)', 'Provider', []);
+
+        const diContent = fs.readFileSync(path.join(diDir, 'injection.dart'), 'utf8');
+        assert.ok(diContent.includes('getIt.registerFactory<SettingsNotifier>'));
+        assert.ok(diContent.includes('() => SettingsNotifier(),'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 23. generateMVVMFiles BLoC with 0 models generates clean constructor
+    test('generateMVVMFiles BLoC with 0 models generates clean constructor', () => {
+        const tempDirPath = path.join(__dirname, 'temp_mvvm_zero_models_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        generateMVVMFiles(tempDirPath, 'home', 'Home', 'home', 'BLoC', [], 'test_app');
+
+        const vmContent = fs.readFileSync(path.join(tempDirPath, 'home', 'viewmodels', 'home_viewmodel.dart'), 'utf8');
+        assert.ok(vmContent.includes('class HomeLoaded extends HomeState {}'));
+        assert.ok(vmContent.includes('HomeViewModel() : super(HomeInitial());'));
+        assert.ok(!vmContent.includes('HomeLoaded({\n  })'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 24. getExtendedEnv augments PATH with flutter and homebrew locations
+    test('getExtendedEnv provides augmented PATH', () => {
+        const env = getExtendedEnv();
+        assert.ok(env.PATH && env.PATH.length > 0);
+        if (process.platform === 'darwin') {
+            assert.ok(env.PATH.includes('/opt/homebrew/bin'));
+            assert.ok(env.PATH.includes('/usr/local/bin'));
+        }
+    });
+
+    // 25. generateMVCFiles BLoC generates controller, view, and models
+    test('generateMVCFiles BLoC generates controller and view', () => {
+        const tempDirPath = path.join(__dirname, 'temp_mvc_bloc_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        generateMVCFiles(tempDirPath, 'cart', 'Cart', 'cart', 'BLoC', [], 'test_app');
+
+        const ctrlContent = fs.readFileSync(path.join(tempDirPath, 'cart', 'controllers', 'cart_controller.dart'), 'utf8');
+        assert.ok(ctrlContent.includes('class CartController extends Cubit<CartState>'));
+        assert.ok(ctrlContent.includes('class CartLoaded extends CartState'));
+
+        const viewContent = fs.readFileSync(path.join(tempDirPath, 'cart', 'views', 'cart_view.dart'), 'utf8');
+        assert.ok(viewContent.includes('class CartView extends StatelessWidget'));
+        assert.ok(viewContent.includes('BlocBuilder<CartController, CartState>'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 26. generateMVCFiles PureBind generates pure state and PureConsumer view
+    test('generateMVCFiles PureBind generates controller and PureConsumer view', () => {
+        const tempDirPath = path.join(__dirname, 'temp_mvc_purebind_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        generateMVCFiles(tempDirPath, 'catalog', 'Catalog', 'catalog', 'PureBind', [], 'test_app');
+
+        const ctrlContent = fs.readFileSync(path.join(tempDirPath, 'catalog', 'controllers', 'catalog_controller.dart'), 'utf8');
+        assert.ok(ctrlContent.includes('class CatalogController'));
+        assert.ok(ctrlContent.includes('final isFetching = Pure<bool>(false);'));
+        assert.ok(ctrlContent.includes('final errorMessage = Pure<String?>(null);'));
+
+        const viewContent = fs.readFileSync(path.join(tempDirPath, 'catalog', 'views', 'catalog_view.dart'), 'utf8');
+        assert.ok(viewContent.includes('PureConsumer<String?>'));
+        assert.ok(viewContent.includes('PureBuilder<bool>'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 27. generateMVCFiles Provider generates ChangeNotifier controller and ListenableBuilder view
+    test('generateMVCFiles Provider generates ChangeNotifier controller and ListenableBuilder view', () => {
+        const tempDirPath = path.join(__dirname, 'temp_mvc_provider_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        generateMVCFiles(tempDirPath, 'checkout', 'Checkout', 'checkout', 'Provider', [], 'test_app');
+
+        const ctrlContent = fs.readFileSync(path.join(tempDirPath, 'checkout', 'controllers', 'checkout_controller.dart'), 'utf8');
+        assert.ok(ctrlContent.includes('class CheckoutController extends ChangeNotifier'));
+        assert.ok(ctrlContent.includes('notifyListeners();'));
+
+        const viewContent = fs.readFileSync(path.join(tempDirPath, 'checkout', 'views', 'checkout_view.dart'), 'utf8');
+        assert.ok(viewContent.includes('ListenableBuilder'));
+        assert.ok(viewContent.includes('listenable: controller'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 28. generateMVCFiles Riverpod generates Riverpod annotation and ConsumerStatefulWidget
+    test('generateMVCFiles Riverpod generates controller and ConsumerStatefulWidget view', () => {
+        const tempDirPath = path.join(__dirname, 'temp_mvc_riverpod_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        generateMVCFiles(tempDirPath, 'feed', 'Feed', 'feed', 'Riverpod', [], 'test_app');
+
+        const ctrlContent = fs.readFileSync(path.join(tempDirPath, 'feed', 'controllers', 'feed_controller.dart'), 'utf8');
+        assert.ok(ctrlContent.includes('@riverpod'));
+        assert.ok(ctrlContent.includes('class FeedController extends _$FeedController'));
+
+        const viewContent = fs.readFileSync(path.join(tempDirPath, 'feed', 'views', 'feed_view.dart'), 'utf8');
+        assert.ok(viewContent.includes('class FeedView extends ConsumerStatefulWidget'));
+        assert.ok(viewContent.includes('ref.watch(feedControllerProvider)'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 29. generateMVCFiles GetX generates GetxController and Obx view
+    test('generateMVCFiles GetX generates GetxController and Obx view', () => {
+        const tempDirPath = path.join(__dirname, 'temp_mvc_getx_test');
+        fs.mkdirSync(tempDirPath, { recursive: true });
+
+        generateMVCFiles(tempDirPath, 'profile', 'Profile', 'profile', 'GetX', [], 'test_app');
+
+        const ctrlContent = fs.readFileSync(path.join(tempDirPath, 'profile', 'controllers', 'profile_controller.dart'), 'utf8');
+        assert.ok(ctrlContent.includes('class ProfileController extends GetxController'));
+        assert.ok(ctrlContent.includes('final isLoading = false.obs;'));
+
+        const viewContent = fs.readFileSync(path.join(tempDirPath, 'profile', 'views', 'profile_view.dart'), 'utf8');
+        assert.ok(viewContent.includes('Obx('));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
+
+    // 30. registerDependenciesInLocator with MVC registers Controller
+    test('registerDependenciesInLocator with MVC registers Controller in locator', () => {
+        const tempDirPath = path.join(__dirname, 'temp_di_mvc_test');
+        const diDir = path.join(tempDirPath, 'lib', 'core', 'di');
+        fs.mkdirSync(diDir, { recursive: true });
+        fs.writeFileSync(path.join(tempDirPath, 'pubspec.yaml'), 'name: test_app\n');
+        fs.writeFileSync(
+            path.join(diDir, 'injection.dart'),
+            'import "package:get_it/get_it.dart";\nfinal getIt = GetIt.instance;\nvoid setupLocator() {\n  // Features register tag (DO NOT REMOVE)\n}\n'
+        );
+
+        registerDependenciesInLocator(tempDirPath, 'analytics', 'Analytics', 'test_app', 'MVC (Model-View-Controller)', 'BLoC', []);
+
+        const diContent = fs.readFileSync(path.join(diDir, 'injection.dart'), 'utf8');
+        assert.ok(diContent.includes('getIt.registerFactory<AnalyticsController>'));
+        assert.ok(diContent.includes('() => AnalyticsController(),'));
+
+        fs.rmSync(tempDirPath, { recursive: true });
+    });
 });
+

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deactivate = exports.configurePubspecForLints = exports.generateAnalysisOptions = exports.getStateManagementLintRules = exports.getArchitectureLintRules = exports.generatePaginatedListFiles = exports.configureIosMethodChannel = exports.configureAndroidMethodChannel = exports.generateMethodChannelDartFile = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.generateMVVMFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.isInjectableEnabled = exports.findProjectRoot = exports.getPackageName = exports.parseJsonToModel = exports.activate = exports.STATE_MANAGEMENT_OPTIONS = exports.ARCHITECTURE_OPTIONS = void 0;
+exports.deactivate = exports.configurePubspecForLints = exports.generateAnalysisOptions = exports.getStateManagementLintRules = exports.getArchitectureLintRules = exports.generatePaginatedListFiles = exports.configureIosMethodChannel = exports.configureAndroidMethodChannel = exports.generateMethodChannelDartFile = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.configureAndroidSigning = exports.generateThemeFiles = exports.generateSecurityFiles = exports.generateConnectivityFiles = exports.generateNotificationService = exports.generateL10nConfig = exports.generateEnvFile = exports.generateMVVMFiles = exports.generateMVCFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.getExtendedEnv = exports.isInjectableEnabled = exports.findProjectRoot = exports.getPackageName = exports.parseJsonToModel = exports.activate = exports.STATE_MANAGEMENT_OPTIONS = exports.ARCHITECTURE_OPTIONS = void 0;
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
@@ -52,6 +52,9 @@ function activate(context) {
             progress.report({ message: "Generating core configuration..." });
             generateCoreConfig(rootPath);
             updateMainDartForRouterAndScreenUtil(rootPath, stateManagement);
+            progress.report({ message: "Configuring lint rules..." });
+            configurePubspecForLints(rootPath, false);
+            generateAnalysisOptions(rootPath, archType, stateManagement);
             if (pubAddOk) {
                 vscode.window.showInformationMessage(`Flutter Config Initialized with ${archType} and ${stateManagement}!`);
             }
@@ -103,8 +106,14 @@ function activate(context) {
             title: `Generating ${featurePascal} Feature...`,
             cancellable: false
         }, async (progress) => {
+            if (!fs.existsSync(path.join(rootPath, 'lib', 'core', 'di', 'injection.dart'))) {
+                generateCoreConfig(rootPath);
+            }
             if (arch?.includes('Clean')) {
                 generateCleanArchFiles(targetDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName);
+            }
+            else if (arch?.includes('MVC')) {
+                generateMVCFiles(targetDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName);
             }
             else {
                 generateMVVMFiles(targetDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName);
@@ -157,8 +166,14 @@ function activate(context) {
             title: `Generating Configs for Existing ${featurePascal} Screen...`,
             cancellable: false
         }, async (progress) => {
+            if (!fs.existsSync(path.join(rootPath, 'lib', 'core', 'di', 'injection.dart'))) {
+                generateCoreConfig(rootPath);
+            }
             if (arch?.includes('Clean')) {
                 generateCleanArchFiles(featuresDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, true);
+            }
+            else if (arch?.includes('MVC')) {
+                generateMVCFiles(featuresDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, true);
             }
             else {
                 generateMVVMFiles(featuresDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, true);
@@ -221,11 +236,14 @@ abstract class ${cubitPascal}State {}
 class ${cubitPascal}Initial extends ${cubitPascal}State {}
 `;
         fs.writeFileSync(statePath, stateTemplate);
+        const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
+        const cubitInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+        const cubitInjectableAnnot = useInjectable ? "@injectable\n" : "";
         const cubitTemplate = `import 'package:flutter_bloc/flutter_bloc.dart';
-
+${cubitInjectableImport}
 part '${cubitName}_state.dart';
 
-class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
+${cubitInjectableAnnot}class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
   ${cubitPascal}Cubit() : super(${cubitPascal}Initial());
 
   Future<void> ${methodCamel}() async {
@@ -298,8 +316,11 @@ class ${cubitPascal}Cubit extends Cubit<${cubitPascal}State> {
             if (arch.includes('Clean')) {
                 await addCleanArchApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName, responseModel);
             }
+            else if (arch.includes('MVC')) {
+                await addMvvmApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName, responseModel, true);
+            }
             else {
-                await addMvvmApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName, responseModel);
+                await addMvvmApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName, responseModel, false);
             }
             editor.edit((editBuilder) => {
                 editBuilder.insert(position, buildActionCallSnippet(stateMgmt, arch, featureCamel, featurePascal, actionCamel, actionPascal));
@@ -1178,10 +1199,34 @@ function filterAlreadyAddedPackages(packagesArg, rootPath) {
         ...(devSectionPackages.length ? ['--dev', ...devSectionPackages.map(quotePubAddToken)] : []),
     ].join(' ');
 }
+function getExtendedEnv() {
+    const currentPath = process.env.PATH || '';
+    const home = process.env.HOME || '';
+    const additionalPaths = [
+        '/usr/local/bin',
+        '/opt/homebrew/bin',
+        '/usr/bin',
+        '/bin',
+        '/usr/sbin',
+        '/sbin',
+        path.join(home, 'flutter', 'bin'),
+        path.join(home, 'fvm', 'default', 'bin'),
+        path.join(home, '.pub-cache', 'bin'),
+        path.join(home, 'development', 'flutter', 'bin'),
+    ].filter(p => p && !currentPath.split(path.delimiter).includes(p));
+    const newPath = additionalPaths.length > 0
+        ? `${additionalPaths.join(path.delimiter)}${path.delimiter}${currentPath}`
+        : currentPath;
+    return {
+        ...process.env,
+        PATH: newPath,
+    };
+}
+exports.getExtendedEnv = getExtendedEnv;
 function runFlutterPubAdd(packagesArg, rootPath, dryRun) {
     return new Promise((resolve) => {
         const dryRunFlag = dryRun ? '--dry-run ' : '';
-        (0, child_process_1.exec)(`flutter pub add ${dryRunFlag}--no-example ${packagesArg}`, { cwd: rootPath }, (err, stdout, stderr) => {
+        (0, child_process_1.exec)(`flutter pub add ${dryRunFlag}--no-example ${packagesArg}`, { cwd: rootPath, env: getExtendedEnv() }, (err, stdout, stderr) => {
             resolve({
                 ok: !err,
                 stdout,
@@ -1228,20 +1273,44 @@ function toCamelCase(str) {
 exports.toCamelCase = toCamelCase;
 function buildActionCallSnippet(stateMgmt, arch, featureCamel, featurePascal, actionCamel, actionPascal) {
     const isClean = arch.includes('Clean');
+    const isMvc = arch.includes('MVC');
     if (stateMgmt === 'BLoC') {
-        return isClean
-            ? `context.read<${featurePascal}Bloc>().add(Execute${actionPascal}Event());`
-            : `context.read<${featurePascal}ViewModel>().${actionCamel}();`;
+        if (isClean) {
+            return `context.read<${featurePascal}Bloc>().add(Execute${actionPascal}Event());`;
+        }
+        else if (isMvc) {
+            return `context.read<${featurePascal}Controller>().${actionCamel}();`;
+        }
+        else {
+            return `context.read<${featurePascal}ViewModel>().${actionCamel}();`;
+        }
+    }
+    else if (stateMgmt === 'Provider') {
+        if (isClean) {
+            return `context.read<${featurePascal}Notifier>().${actionCamel}();`;
+        }
+        else if (isMvc) {
+            return `context.read<${featurePascal}Controller>().${actionCamel}();`;
+        }
+        else {
+            return `context.read<${featurePascal}ViewModel>().${actionCamel}();`;
+        }
     }
     else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
-        return isClean
+        return isClean || isMvc
             ? `controller.${actionCamel}();`
             : `viewModel.${actionCamel}();`;
     }
     else {
-        return isClean
-            ? `ref.read(${featureCamel}NotifierProvider.notifier).${actionCamel}();`
-            : `ref.read(${featureCamel}ViewModelProvider.notifier).${actionCamel}();`;
+        if (isClean) {
+            return `ref.read(${featureCamel}NotifierProvider.notifier).${actionCamel}();`;
+        }
+        else if (isMvc) {
+            return `ref.read(${featureCamel}ControllerProvider.notifier).${actionCamel}();`;
+        }
+        else {
+            return `ref.read(${featureCamel}ViewModelProvider.notifier).${actionCamel}();`;
+        }
     }
 }
 async function installDependencies(rootPath, stateManagement) {
@@ -1319,12 +1388,24 @@ function generateCoreConfig(rootPath) {
     }
     // 1. Dio Config
     const dioPath = path.join(networkDir, 'dio_configuration.dart');
+    const legacyDioPath = path.join(rootPath, 'lib', 'core', 'dio_configuration.dart');
+    if (fs.existsSync(legacyDioPath)) {
+        if (!fs.existsSync(dioPath)) {
+            fs.copyFileSync(legacyDioPath, dioPath);
+        }
+        fs.rmSync(legacyDioPath, { force: true });
+    }
     if (!fs.existsSync(dioPath)) {
+        const useInjectable = isInjectableEnabled(rootPath);
+        const injectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+        const moduleAnnotation = useInjectable ? "@module\n" : "";
+        const classDeclaration = useInjectable ? "abstract class DioModule" : "class DioModule";
+        const lazySingletonAnnotation = useInjectable ? "  @lazySingleton\n" : "";
         const dioTemplate = `import 'package:dio/dio.dart';
-import 'token_service.dart';
+${injectableImport}import 'token_service.dart';
 
-class DioModule {
-  Dio get dio {
+${moduleAnnotation}${classDeclaration} {
+${lazySingletonAnnotation}  Dio get dio {
     final dio = Dio(
       BaseOptions(
         baseUrl: 'https://api.yourdomain.com/v1/',
@@ -1371,6 +1452,22 @@ class DioModule {
     }
     // 1b. Dio Extensions for Push, Put, Delete, Get
     const dioExtPath = path.join(networkDir, 'dio_extensions.dart');
+    const legacyDioExtPath = path.join(rootPath, 'lib', 'core', 'dio_extensions.dart');
+    if (fs.existsSync(legacyDioExtPath)) {
+        if (!fs.existsSync(dioExtPath)) {
+            fs.copyFileSync(legacyDioExtPath, dioExtPath);
+        }
+        fs.rmSync(legacyDioExtPath, { force: true });
+    }
+    // Clean up legacy locator files if present
+    const legacyLocatorPath = path.join(rootPath, 'lib', 'locator.dart');
+    const legacyLocatorConfigPath = path.join(rootPath, 'lib', 'locator.config.dart');
+    if (fs.existsSync(legacyLocatorPath)) {
+        fs.rmSync(legacyLocatorPath, { force: true });
+    }
+    if (fs.existsSync(legacyLocatorConfigPath)) {
+        fs.rmSync(legacyLocatorConfigPath, { force: true });
+    }
     if (!fs.existsSync(dioExtPath)) {
         const dioExtTemplate = `import 'package:dio/dio.dart';
 
@@ -1436,7 +1533,21 @@ extension DioExtensions on Dio {
     // 2. Simple DI Setup
     const diPath = path.join(diDir, 'injection.dart');
     if (!fs.existsSync(diPath)) {
-        const diTemplate = `import 'package:get_it/get_it.dart';
+        const useInjectable = isInjectableEnabled(rootPath);
+        let diTemplate = '';
+        if (useInjectable) {
+            diTemplate = `import 'package:get_it/get_it.dart';
+import 'package:injectable/injectable.dart';
+import 'injection.config.dart';
+
+final getIt = GetIt.instance;
+
+@InjectableInit()
+void configureDependencies() => getIt.init();
+`;
+        }
+        else {
+            diTemplate = `import 'package:get_it/get_it.dart';
 import 'package:dio/dio.dart';
 import '../network/dio_configuration.dart';
 
@@ -1449,6 +1560,7 @@ void configureDependencies() {
   // Features register tag (DO NOT REMOVE)
 }
 `;
+        }
         fs.writeFileSync(diPath, diTemplate);
     }
     // 3. GoRouter Setup
@@ -1608,10 +1720,9 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
             if (!content.includes(blocCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/presentation/bloc/${name}_bloc.dart';\n`;
                 const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
+                const argsBlock = allUsecaseArgs ? `\n      ${allUsecaseArgs},\n    ` : '';
                 registrations += `  getIt.registerFactory<${pascal}Bloc>(
-    () => ${pascal}Bloc(
-      ${allUsecaseArgs},
-    ),
+    () => ${pascal}Bloc(${argsBlock}),
   );\n`;
             }
         }
@@ -1620,10 +1731,9 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
             if (!content.includes(controllerCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/presentation/controllers/${name}_controller.dart';\n`;
                 const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
+                const argsBlock = allUsecaseArgs ? `\n      ${allUsecaseArgs},\n    ` : '';
                 registrations += `  getIt.registerFactory<${pascal}Controller>(
-    () => ${pascal}Controller(
-      ${allUsecaseArgs},
-    ),
+    () => ${pascal}Controller(${argsBlock}),
   );\n`;
             }
         }
@@ -1632,10 +1742,50 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
             if (!content.includes(controllerCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/presentation/controllers/${name}_controller.dart';\n`;
                 const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
+                const argsBlock = allUsecaseArgs ? `\n      ${allUsecaseArgs},\n    ` : '';
                 registrations += `  getIt.registerFactory<${pascal}Controller>(
-    () => ${pascal}Controller(
-      ${allUsecaseArgs},
-    ),
+    () => ${pascal}Controller(${argsBlock}),
+  );\n`;
+            }
+        }
+        else if (stateMgmt === 'Provider') {
+            const notifierCheck = `getIt.registerFactory<${pascal}Notifier>`;
+            if (!content.includes(notifierCheck)) {
+                imports += `import 'package:${packageName}/features/${name}/presentation/provider/${name}_notifier.dart';\n`;
+                const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
+                const argsBlock = allUsecaseArgs ? `\n      ${allUsecaseArgs},\n    ` : '';
+                registrations += `  getIt.registerFactory<${pascal}Notifier>(
+    () => ${pascal}Notifier(${argsBlock}),
+  );\n`;
+            }
+        }
+    }
+    else if (arch.includes('MVC')) {
+        for (const m of models) {
+            const modelImportCheck = `import 'package:${packageName}/features/${name}/models/${m.modelNameSnake}_model.dart';`;
+            if (!content.includes(modelImportCheck)) {
+                imports += `${modelImportCheck}\n`;
+            }
+            const serviceImportCheck = `import 'package:${packageName}/features/${name}/services/${m.modelNameSnake}_api_service.dart';`;
+            if (!content.includes(serviceImportCheck)) {
+                imports += `${serviceImportCheck}\n`;
+            }
+            const serviceCheck = `getIt.registerLazySingleton<${m.modelNamePascal}ApiService>`;
+            if (!content.includes(serviceCheck)) {
+                registrations += `
+  getIt.registerLazySingleton<${m.modelNamePascal}ApiService>(
+    () => ${m.modelNamePascal}ApiServiceImpl(getIt<Dio>()),
+  );\n`;
+            }
+        }
+        if (stateMgmt !== 'Riverpod') {
+            const ctrlCheck = `getIt.registerFactory<${pascal}Controller>`;
+            if (!content.includes(ctrlCheck)) {
+                imports += `import 'package:${packageName}/features/${name}/controllers/${name}_controller.dart';\n`;
+                const serviceArgs = models.map(m => `getIt<${m.modelNamePascal}ApiService>()`).join(', ');
+                registrations += `
+  getIt.registerFactory<${pascal}Controller>(
+    () => ${pascal}Controller(${serviceArgs}),
   );\n`;
             }
         }
@@ -1705,6 +1855,9 @@ function generateCleanArchFiles(targetDir, name, pascal, camel, stateMgmt, model
     }
     else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
         fs.mkdirSync(path.join(presDir, 'controllers'), { recursive: true });
+    }
+    else if (stateMgmt === 'Provider') {
+        fs.mkdirSync(path.join(presDir, 'provider'), { recursive: true });
     }
     else {
         fs.mkdirSync(path.join(presDir, 'riverpod'), { recursive: true });
@@ -1942,19 +2095,22 @@ class Fetch${pascal}Event extends ${pascal}Event {}
             // State
             const stateFields = models.map(m => `  final ${m.modelNamePascal}Entity? ${m.modelNameCamel}Data;`).join('\n');
             const stateConstructorArgs = models.map(m => `this.${m.modelNameCamel}Data,`).join('\n');
+            const stateLoadedClass = models.length > 0
+                ? `class ${pascal}Loaded extends ${pascal}State {
+${stateFields}
+
+  ${pascal}Loaded({
+${stateConstructorArgs}
+  });
+}`
+                : `class ${pascal}Loaded extends ${pascal}State {}`;
             fs.writeFileSync(statePath, `part of '${name}_bloc.dart';
 
 abstract class ${pascal}State {}
 
 class ${pascal}Initial extends ${pascal}State {}
 class ${pascal}Loading extends ${pascal}State {}
-class ${pascal}Loaded extends ${pascal}State {
-${stateFields}
-
-  ${pascal}Loaded({
-${stateConstructorArgs}
-  });
-}
+${stateLoadedClass}
 class ${pascal}Error extends ${pascal}State {
   final String message;
   ${pascal}Error(this.message);
@@ -1975,16 +2131,24 @@ import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';`).join('
     required this.update${m.modelNamePascal}UseCase,
     required this.delete${m.modelNamePascal}UseCase,`).join('\n');
             let parallelExecution = '';
-            let loadedConstructorParams = '';
+            let emitLoadedCall = `emit(${pascal}Loaded());`;
             if (models.length > 0) {
                 parallelExecution = `final results = await Future.wait([
-          ${models.map(m => `get${m.modelNamePascal}UseCase.execute().catchError((_) => null),`).join('\n          ')}
+          ${models.map(m => `get${m.modelNamePascal}UseCase.execute().then<${m.modelNamePascal}Entity?>((v) => v).catchError((_) => null),`).join('\n          ')}
         ]);`;
-                loadedConstructorParams = models.map((m, idx) => `          ${m.modelNameCamel}Data: results[${idx}] as ${m.modelNamePascal}Entity?,`).join('\n');
+                const loadedConstructorParams = models.map((m, idx) => `          ${m.modelNameCamel}Data: results[${idx}]${models.length > 1 ? ` as ${m.modelNamePascal}Entity?` : ''},`).join('\n');
+                emitLoadedCall = `emit(${pascal}Loaded(
+${loadedConstructorParams}
+        ));`;
             }
             const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
             const blocInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
             const blocInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            const constructorBlock = models.length > 0
+                ? `  ${pascal}Bloc({
+${blocConstructorArgs}
+  }) : super(${pascal}Initial())`
+                : `  ${pascal}Bloc() : super(${pascal}Initial())`;
             fs.writeFileSync(blocPath, `import 'package:flutter_bloc/flutter_bloc.dart';
 ${blocInjectableImport}${blocImports}
 
@@ -1994,17 +2158,13 @@ part '${name}_state.dart';
 ${blocInjectableAnnot}class ${pascal}Bloc extends Bloc<${pascal}Event, ${pascal}State> {
 ${blocFields}
 
-  ${pascal}Bloc({
-${blocConstructorArgs}
-  }) : super(${pascal}Initial()) {
+${constructorBlock} {
     on<Fetch${pascal}Event>((event, emit) async {
       emit(${pascal}Loading());
       try {
         ${parallelExecution}
 
-        emit(${pascal}Loaded(
-${loadedConstructorParams}
-        ));
+        ${emitLoadedCall}
       } catch (e) {
         emit(${pascal}Error(e.toString()));
       }
@@ -2059,7 +2219,7 @@ import '../../domain/usecases/get_${m.modelNameSnake}_usecase.dart';`).join('\n'
             let notifierBuildBody = '';
             if (models.length > 0) {
                 notifierBuildBody = `final results = await Future.wait([
-      ${models.map(m => `getIt<Get${m.modelNamePascal}UseCase>().execute().catchError((_) => null),`).join('\n      ')}
+      ${models.map(m => `getIt<Get${m.modelNamePascal}UseCase>().execute().then<${m.modelNamePascal}Entity?>((v) => v).catchError((_) => null),`).join('\n      ')}
     ]);
     return results;`;
             }
@@ -2128,26 +2288,36 @@ import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
             const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
             const controllerInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
             const controllerInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            const constructorBlock = models.length > 0
+                ? `  ${pascal}Controller({
+${controllerConstructorArgs}
+  });`
+                : `  ${pascal}Controller();`;
+            const pureFields = models.map(m => `  final ${m.modelNameCamel}Data = Pure<${m.modelNamePascal}Entity?>(null);`).join('\n');
+            const pureAssigns = models.map((m, idx) => `      ${m.modelNameCamel}Data.value = results[${idx}] as ${m.modelNamePascal}Entity?;`).join('\n');
+            const pureFetchBody = models.length > 0
+                ? `final results = await Future.wait([
+        ${models.map(m => `get${m.modelNamePascal}UseCase.execute().then<${m.modelNamePascal}Entity?>((v) => v).catchError((_) => null),`).join('\n        ')}
+      ]);
+${pureAssigns}`
+                : '';
             fs.writeFileSync(controllerPath, `import 'package:purebind/purebind.dart';
 ${controllerInjectableImport}${controllerImports}
 
 ${controllerInjectableAnnot}class ${pascal}Controller {
 ${controllerFields}
 
-  ${pascal}Controller({
-${controllerConstructorArgs}
-  });
+${constructorBlock}
 
   final isLoading = Pure<bool>(false);
   final errorMessage = Pure<String?>(null);
+${pureFields}
 
   Future<void> fetch${pascal}Data() async {
     isLoading.value = true;
     errorMessage.value = null;
     try {
-      await Future.wait([
-        ${models.map(m => `get${m.modelNamePascal}UseCase.execute(),`).join('\n        ')}
-      ]);
+      ${pureFetchBody}
     } catch (e) {
       errorMessage.value = e.toString();
     } finally {
@@ -2222,15 +2392,18 @@ import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
             const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
             const controllerInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
             const controllerInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            const constructorBlock = models.length > 0
+                ? `  ${pascal}Controller({
+${controllerConstructorArgs}
+  });`
+                : `  ${pascal}Controller();`;
             fs.writeFileSync(controllerPath, `import 'package:get/get.dart';
 ${controllerInjectableImport}${controllerImports}
 
 ${controllerInjectableAnnot}class ${pascal}Controller extends GetxController {
 ${controllerFields}
 
-  ${pascal}Controller({
-${controllerConstructorArgs}
-  });
+${constructorBlock}
 
   final isLoading = false.obs;
   final errorMessage = Rxn<String>();
@@ -2298,8 +2471,608 @@ class _${pascal}PageState extends State<${pascal}Page> {
 `);
         }
     }
+    else if (stateMgmt === 'Provider') {
+        const notifierPath = path.join(presDir, 'provider', `${name}_notifier.dart`);
+        if (!skipPageIfExists || !fs.existsSync(notifierPath)) {
+            const notifierFields = models.map(m => `  final Get${m.modelNamePascal}UseCase get${m.modelNamePascal}UseCase;
+  final Create${m.modelNamePascal}UseCase create${m.modelNamePascal}UseCase;
+  final Update${m.modelNamePascal}UseCase update${m.modelNamePascal}UseCase;
+  final Delete${m.modelNamePascal}UseCase delete${m.modelNamePascal}UseCase;`).join('\n');
+            const notifierConstructorArgs = models.map(m => `    required this.get${m.modelNamePascal}UseCase,
+    required this.create${m.modelNamePascal}UseCase,
+    required this.update${m.modelNamePascal}UseCase,
+    required this.delete${m.modelNamePascal}UseCase,`).join('\n');
+            const notifierImports = models.map(m => `import '../../domain/usecases/get_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/create_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/update_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';
+import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
+            const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
+            const notifierInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const notifierInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            const constructorBlock = models.length > 0
+                ? `  ${pascal}Notifier({
+${notifierConstructorArgs}
+  });`
+                : `  ${pascal}Notifier();`;
+            const stateFields = models.map(m => `  ${m.modelNamePascal}Entity? ${m.modelNameCamel}Data;`).join('\n');
+            const fetchCalls = models.map(m => `      ${m.modelNameCamel}Data = await get${m.modelNamePascal}UseCase.execute().then<${m.modelNamePascal}Entity?>((v) => v).catchError((_) => null);`).join('\n');
+            fs.writeFileSync(notifierPath, `import 'package:flutter/foundation.dart';
+${notifierInjectableImport}${notifierImports}
+
+${notifierInjectableAnnot}class ${pascal}Notifier extends ChangeNotifier {
+${notifierFields}
+
+${constructorBlock}
+
+${stateFields}
+  bool _isLoading = false;
+  bool get isLoading => _isLoading;
+
+  String? _errorMessage;
+  String? get errorMessage => _errorMessage;
+
+  Future<void> fetch${pascal}Data() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+${fetchCalls}
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+}
+`);
+        }
+        const pagePath = path.join(presDir, 'pages', `${name}_page.dart`);
+        if (!skipPageIfExists || !fs.existsSync(pagePath) || fs.readFileSync(pagePath, 'utf8').trim() === '') {
+            fs.writeFileSync(pagePath, `import 'package:flutter/material.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../provider/${name}_notifier.dart';
+
+class ${pascal}Page extends StatefulWidget {
+  static const route = '/${name}';
+  const ${pascal}Page({super.key});
+
+  @override
+  State<${pascal}Page> createState() => _${pascal}PageState();
+}
+
+class _${pascal}PageState extends State<${pascal}Page> {
+  final ${pascal}Notifier notifier = getIt<${pascal}Notifier>();
+
+  @override
+  void initState() {
+    super.initState();
+    notifier.fetch${pascal}Data();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: notifier,
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('${pascal}')),
+          body: notifier.isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : notifier.errorMessage != null
+                  ? Center(child: Text(notifier.errorMessage!))
+                  : const Center(child: Text('${pascal} Page with Provider!')),
+          floatingActionButton: FloatingActionButton(
+            onPressed: notifier.fetch${pascal}Data,
+            child: const Icon(Icons.refresh),
+          ),
+        );
+      },
+    );
+  }
+}
+`);
+        }
+    }
 }
 exports.generateCleanArchFiles = generateCleanArchFiles;
+function generateMVCFiles(targetDir, name, pascal, camel, stateMgmt, models, packageName, skipPageIfExists = false) {
+    const featDir = path.join(targetDir, name);
+    const modelsDir = path.join(featDir, 'models');
+    const ctrlDir = path.join(featDir, 'controllers');
+    const viewsDir = path.join(featDir, 'views');
+    fs.mkdirSync(modelsDir, { recursive: true });
+    fs.mkdirSync(ctrlDir, { recursive: true });
+    fs.mkdirSync(viewsDir, { recursive: true });
+    // Generate models
+    for (const m of models) {
+        const modelPropertiesDecl = m.properties.map(p => {
+            const camelName = toCamelCase(p.name);
+            if (camelName !== p.name) {
+                return `    @JsonKey(name: '${p.name}') required ${p.type} ${camelName},`;
+            }
+            return `    required ${p.type} ${p.name},`;
+        }).join('\n');
+        fs.writeFileSync(path.join(modelsDir, `${m.modelNameSnake}_model.dart`), `import 'package:freezed_annotation/freezed_annotation.dart';
+
+part '${m.modelNameSnake}_model.freezed.dart';
+part '${m.modelNameSnake}_model.g.dart';
+
+@freezed
+abstract class ${m.modelNamePascal}Model with _\$${m.modelNamePascal}Model {
+  const factory ${m.modelNamePascal}Model({
+${modelPropertiesDecl}
+  }) = _${m.modelNamePascal}Model;
+
+  factory ${m.modelNamePascal}Model.fromJson(Map<String, dynamic> json) => _\$${m.modelNamePascal}ModelFromJson(json);
+}
+`);
+    }
+    // Create services directory for MVC API Calls
+    const servicesDir = path.join(featDir, 'services');
+    fs.mkdirSync(servicesDir, { recursive: true });
+    const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
+    for (const m of models) {
+        const servicePath = path.join(servicesDir, `${m.modelNameSnake}_api_service.dart`);
+        if (!fs.existsSync(servicePath)) {
+            const serviceInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const serviceInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}ApiService)\n` : "";
+            fs.writeFileSync(servicePath, `${serviceInjectableImport}import 'package:dio/dio.dart';
+import '../models/${m.modelNameSnake}_model.dart';
+
+abstract class ${m.modelNamePascal}ApiService {
+  Future<${m.modelNamePascal}Model?> get${m.modelNamePascal}();
+}
+
+${serviceInjectableAnnot}class ${m.modelNamePascal}ApiServiceImpl implements ${m.modelNamePascal}ApiService {
+  final Dio dio;
+
+  ${m.modelNamePascal}ApiServiceImpl(this.dio);
+
+  @override
+  Future<${m.modelNamePascal}Model?> get${m.modelNamePascal}() async {
+    try {
+      final response = await dio.get('/${m.modelNameSnake}');
+      if (response.data != null) {
+        return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
+      }
+    } catch (_) {}
+    return null;
+  }
+}
+`);
+        }
+    }
+    // Controller & View depending on State Management
+    if (stateMgmt === 'BLoC') {
+        const ctrlPath = path.join(ctrlDir, `${name}_controller.dart`);
+        if (!skipPageIfExists || !fs.existsSync(ctrlPath)) {
+            const stateFields = models.map(m => `  final ${m.modelNamePascal}Model? ${m.modelNameCamel}Model;`).join('\n');
+            const stateConstructorArgs = models.map(m => `this.${m.modelNameCamel}Model,`).join('\n');
+            const ctrlInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const ctrlInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            fs.writeFileSync(ctrlPath, `import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/foundation.dart';
+${ctrlInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+
+abstract class ${pascal}State {}
+class ${pascal}Initial extends ${pascal}State {}
+class ${pascal}Loading extends ${pascal}State {}
+class ${pascal}Loaded extends ${pascal}State {
+${stateFields}
+  ${pascal}Loaded({
+${stateConstructorArgs}
+  });
+}
+class ${pascal}Error extends ${pascal}State {
+  final String message;
+  ${pascal}Error(this.message);
+}
+
+${ctrlInjectableAnnot}class ${pascal}Controller extends Cubit<${pascal}State> {
+${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
+
+  ${pascal}Controller(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')}) : super(${pascal}Initial());
+
+  Future<void> fetch${pascal}Data() async {
+    emit(${pascal}Loading());
+    try {
+      final results = await Future.wait([
+        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
+      ]);
+
+      emit(${pascal}Loaded(
+        ${models.map((m, idx) => `${m.modelNameCamel}Model: results[${idx}] as ${m.modelNamePascal}Model?,`).join('\n        ')}
+      ));
+    } catch (e) {
+      emit(${pascal}Error(e.toString()));
+    }
+  }
+}
+`);
+        }
+        const viewPath = path.join(viewsDir, `${name}_view.dart`);
+        if (!skipPageIfExists || !fs.existsSync(viewPath) || fs.readFileSync(viewPath, 'utf8').trim() === '') {
+            fs.writeFileSync(viewPath, `import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../controllers/${name}_controller.dart';
+
+class ${pascal}View extends StatelessWidget {
+  static const route = '/${name}';
+  const ${pascal}View({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => getIt<${pascal}Controller>()..fetch${pascal}Data(),
+      child: Scaffold(
+        appBar: AppBar(title: const Text('${pascal}')),
+        body: BlocBuilder<${pascal}Controller, ${pascal}State>(
+          builder: (context, state) {
+            if (state is ${pascal}Loading) {
+              return const Center(child: CircularProgressIndicator());
+            } else if (state is ${pascal}Loaded) {
+              return const Center(child: Text('MVC BLoC Data Loaded Resiliently!'));
+            } else if (state is ${pascal}Error) {
+              return Center(child: Text(state.message));
+            }
+            return const SizedBox();
+          },
+        ),
+      ),
+    );
+  }
+}
+`);
+        }
+    }
+    else if (stateMgmt === 'PureBind') {
+        const ctrlPath = path.join(ctrlDir, `${name}_controller.dart`);
+        if (!skipPageIfExists || !fs.existsSync(ctrlPath)) {
+            const ctrlInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const ctrlInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            fs.writeFileSync(ctrlPath, `import 'package:purebind/purebind.dart';
+${ctrlInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+
+${ctrlInjectableAnnot}class ${pascal}Controller {
+${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
+
+  ${pascal}Controller(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
+
+  final isFetching = Pure<bool>(false);
+  final errorMessage = Pure<String?>(null);
+${models.map(m => `  final ${m.modelNameCamel}Model = Pure<${m.modelNamePascal}Model?>(null);`).join('\n')}
+
+  Future<void> fetch${pascal}Data() async {
+    isFetching.value = true;
+    errorMessage.value = null;
+    try {
+      final results = await Future.wait([
+        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
+      ]);
+${models.map((m, idx) => `      ${m.modelNameCamel}Model.value = results[${idx}] as ${m.modelNamePascal}Model?;`).join('\n')}
+    } catch (e) {
+      errorMessage.value = e.toString();
+    } finally {
+      isFetching.value = false;
+    }
+  }
+}
+`);
+        }
+        const viewPath = path.join(viewsDir, `${name}_view.dart`);
+        if (!skipPageIfExists || !fs.existsSync(viewPath) || fs.readFileSync(viewPath, 'utf8').trim() === '') {
+            fs.writeFileSync(viewPath, `import 'package:flutter/material.dart';
+import 'package:purebind/purebind.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../controllers/${name}_controller.dart';
+
+class ${pascal}View extends StatelessWidget {
+  static const route = '/${name}';
+  final ${pascal}Controller controller = getIt<${pascal}Controller>();
+
+  ${pascal}View({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('${pascal}')),
+      body: PureConsumer<String?>(
+        pure: controller.errorMessage,
+        listener: (context, error) {
+          if (error != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(error)),
+            );
+          }
+        },
+        child: PureBuilder<bool>(
+          pure: controller.isFetching,
+          builder: (context, isFetching) {
+            if (isFetching) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return const Center(child: Text('${pascal} View with PureBind!'));
+          },
+        ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: controller.fetch${pascal}Data,
+        child: const Icon(Icons.refresh),
+      ),
+    );
+  }
+}
+`);
+        }
+    }
+    else if (stateMgmt === 'GetX') {
+        const ctrlPath = path.join(ctrlDir, `${name}_controller.dart`);
+        if (!skipPageIfExists || !fs.existsSync(ctrlPath)) {
+            const ctrlInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const ctrlInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            fs.writeFileSync(ctrlPath, `import 'package:get/get.dart';
+${ctrlInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+
+${ctrlInjectableAnnot}class ${pascal}Controller extends GetxController {
+${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
+
+  ${pascal}Controller(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
+
+  final isLoading = false.obs;
+  final errorMessage = Rxn<String>();
+
+  Future<void> fetch${pascal}Data() async {
+    isLoading.value = true;
+    errorMessage.value = null;
+    try {
+      await Future.wait([
+        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
+      ]);
+    } catch (e) {
+      errorMessage.value = e.toString();
+    } finally {
+      isLoading.value = false;
+    }
+  }
+}
+`);
+        }
+        const viewPath = path.join(viewsDir, `${name}_view.dart`);
+        if (!skipPageIfExists || !fs.existsSync(viewPath) || fs.readFileSync(viewPath, 'utf8').trim() === '') {
+            fs.writeFileSync(viewPath, `import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../controllers/${name}_controller.dart';
+
+class ${pascal}View extends StatefulWidget {
+  static const route = '/${name}';
+  ${pascal}View({super.key});
+
+  @override
+  State<${pascal}View> createState() => _${pascal}ViewState();
+}
+
+class _${pascal}ViewState extends State<${pascal}View> {
+  final ${pascal}Controller controller = getIt<${pascal}Controller>();
+
+  @override
+  void initState() {
+    super.initState();
+    controller.fetch${pascal}Data();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('${pascal}')),
+      body: Obx(() {
+        if (controller.isLoading.value) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (controller.errorMessage.value != null) {
+          return Center(child: Text(controller.errorMessage.value!));
+        }
+        return const Center(child: Text('${pascal} View with GetX!'));
+      }),
+      floatingActionButton: FloatingActionButton(
+        onPressed: controller.fetch${pascal}Data,
+        child: const Icon(Icons.refresh),
+      ),
+    );
+  }
+}
+`);
+        }
+    }
+    else if (stateMgmt === 'Riverpod') {
+        const ctrlPath = path.join(ctrlDir, `${name}_controller.dart`);
+        if (!skipPageIfExists || !fs.existsSync(ctrlPath)) {
+            fs.writeFileSync(ctrlPath, `import 'package:riverpod_annotation/riverpod_annotation.dart';
+import 'package:dio/dio.dart';
+import 'package:${packageName}/core/di/injection.dart';
+${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+
+part '${name}_controller.g.dart';
+
+class ${pascal}State {
+  final bool isLoading;
+  final bool isSuccess;
+  final String? message;
+${models.map(m => `  final ${m.modelNamePascal}Model? ${m.modelNameCamel}Model;`).join('\n')}
+
+  const ${pascal}State({
+    this.isLoading = false,
+    this.isSuccess = false,
+    this.message,
+${models.map(m => `    this.${m.modelNameCamel}Model,`).join('\n')}
+  });
+
+  ${pascal}State copyWith({
+    bool? isLoading,
+    bool? isSuccess,
+    String? message,
+${models.map(m => `    ${m.modelNamePascal}Model? ${m.modelNameCamel}Model,`).join('\n')}
+  }) {
+    return ${pascal}State(
+      isLoading: isLoading ?? this.isLoading,
+      isSuccess: isSuccess ?? this.isSuccess,
+      message: message ?? this.message,
+${models.map(m => `      ${m.modelNameCamel}Model: ${m.modelNameCamel}Model ?? this.${m.modelNameCamel}Model,`).join('\n')}
+    );
+  }
+}
+
+@riverpod
+class ${pascal}Controller extends _\$${pascal}Controller {
+  @override
+  ${pascal}State build() {
+    return const ${pascal}State();
+  }
+
+  Future<void> fetch${pascal}Data() async {
+    state = state.copyWith(isLoading: true, isSuccess: false);
+    try {
+      final results = await Future.wait([
+        ${models.map(m => `getIt<${m.modelNamePascal}ApiService>().get${m.modelNamePascal}(),`).join('\n        ')}
+      ]);
+      state = state.copyWith(
+        isLoading: false,
+        isSuccess: true,
+        ${models.map((m, idx) => `${m.modelNameCamel}Model: results[${idx}] as ${m.modelNamePascal}Model?,`).join('\n        ')}
+      );
+    } catch (e) {
+      state = state.copyWith(isLoading: false, isSuccess: false, message: e.toString());
+    }
+  }
+}
+`);
+        }
+        const viewPath = path.join(viewsDir, `${name}_view.dart`);
+        if (!skipPageIfExists || !fs.existsSync(viewPath) || fs.readFileSync(viewPath, 'utf8').trim() === '') {
+            fs.writeFileSync(viewPath, `import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../controllers/${name}_controller.dart';
+
+class ${pascal}View extends ConsumerStatefulWidget {
+  static const route = '/${name}';
+  const ${pascal}View({super.key});
+
+  @override
+  ConsumerState<${pascal}View> createState() => _${pascal}ViewState();
+}
+
+class _${pascal}ViewState extends ConsumerState<${pascal}View> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      ref.read(${camel}ControllerProvider.notifier).fetch${pascal}Data();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(${camel}ControllerProvider);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('${pascal}')),
+      body: state.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : state.message != null
+              ? Center(child: Text(state.message!))
+              : const Center(child: Text('${pascal} Screen')),
+    );
+  }
+}
+`);
+        }
+    }
+    else {
+        // MVC with Provider (ChangeNotifier Controller)
+        const ctrlPath = path.join(ctrlDir, `${name}_controller.dart`);
+        if (!skipPageIfExists || !fs.existsSync(ctrlPath)) {
+            fs.writeFileSync(ctrlPath, `import 'package:flutter/material.dart';
+${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+
+class ${pascal}Controller extends ChangeNotifier {
+${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
+
+  ${pascal}Controller(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
+
+  bool _isLoading = false;
+  bool get isLoading => _isLoading;
+
+  String? _errorMessage;
+  String? get errorMessage => _errorMessage;
+
+  Future<void> fetch${pascal}Data() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      await Future.wait([
+        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
+      ]);
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+}
+`);
+        }
+        const viewPath = path.join(viewsDir, `${name}_view.dart`);
+        if (!skipPageIfExists || !fs.existsSync(viewPath) || fs.readFileSync(viewPath, 'utf8').trim() === '') {
+            fs.writeFileSync(viewPath, `import 'package:flutter/material.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../controllers/${name}_controller.dart';
+
+class ${pascal}View extends StatefulWidget {
+  static const route = '/${name}';
+  const ${pascal}View({super.key});
+
+  @override
+  State<${pascal}View> createState() => _${pascal}ViewState();
+}
+
+class _${pascal}ViewState extends State<${pascal}View> {
+  final ${pascal}Controller controller = getIt<${pascal}Controller>();
+
+  @override
+  void initState() {
+    super.initState();
+    controller.fetch${pascal}Data();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(title: const Text('${pascal}')),
+          body: controller.isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : controller.errorMessage != null
+                  ? Center(child: Text(controller.errorMessage!))
+                  : const Center(child: Text('${pascal} Screen')),
+        );
+      },
+    );
+  }
+}
+`);
+        }
+    }
+}
+exports.generateMVCFiles = generateMVCFiles;
 function generateMVVMFiles(targetDir, name, pascal, camel, stateMgmt, models, packageName, skipPageIfExists = false) {
     const featDir = path.join(targetDir, name);
     const modelsDir = path.join(featDir, 'models');
@@ -2376,6 +3149,28 @@ ${serviceInjectableAnnot}class ${m.modelNamePascal}ApiServiceImpl implements ${m
             const stateConstructorArgs = models.map(m => `this.${m.modelNameCamel}Model,`).join('\n');
             const vmInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
             const vmInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            const stateLoadedClass = models.length > 0
+                ? `class ${pascal}Loaded extends ${pascal}State {
+${stateFields}
+  ${pascal}Loaded({
+${stateConstructorArgs}
+  });
+}`
+                : `class ${pascal}Loaded extends ${pascal}State {}`;
+            const vmConstructorArgs = models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ');
+            const vmConstructor = models.length > 0
+                ? `  ${pascal}ViewModel(${vmConstructorArgs}) : super(${pascal}Initial());`
+                : `  ${pascal}ViewModel() : super(${pascal}Initial());`;
+            let fetchBody = `emit(${pascal}Loaded());`;
+            if (models.length > 0) {
+                fetchBody = `final results = await Future.wait([
+        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
+      ]);
+
+      emit(${pascal}Loaded(
+        ${models.map((m, idx) => `${m.modelNameCamel}Model: results[${idx}] as ${m.modelNamePascal}Model?,`).join('\n        ')}
+      ));`;
+            }
             // ViewModel (as Cubit)
             fs.writeFileSync(vmPath, `import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/foundation.dart';
@@ -2384,12 +3179,7 @@ ${vmInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_mo
 abstract class ${pascal}State {}
 class ${pascal}Initial extends ${pascal}State {}
 class ${pascal}Loading extends ${pascal}State {}
-class ${pascal}Loaded extends ${pascal}State {
-${stateFields}
-  ${pascal}Loaded({
-${stateConstructorArgs}
-  });
-}
+${stateLoadedClass}
 class ${pascal}Error extends ${pascal}State {
   final String message;
   ${pascal}Error(this.message);
@@ -2398,18 +3188,12 @@ class ${pascal}Error extends ${pascal}State {
 ${vmInjectableAnnot}class ${pascal}ViewModel extends Cubit<${pascal}State> {
 ${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
 
-  ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')}) : super(${pascal}Initial());
+${vmConstructor}
 
   Future<void> fetch${pascal}Data() async {
     emit(${pascal}Loading());
     try {
-      final results = await Future.wait([
-        ${models.map(m => `${m.modelNameCamel}ApiService.get${m.modelNamePascal}(),`).join('\n        ')}
-      ]);
-
-      emit(${pascal}Loaded(
-        ${models.map((m, idx) => `${m.modelNameCamel}Model: results[${idx}] as ${m.modelNamePascal}Model?,`).join('\n        ')}
-      ));
+      ${fetchBody}
     } catch (e) {
       emit(${pascal}Error(e.toString()));
     }
@@ -2459,13 +3243,17 @@ class ${pascal}View extends StatelessWidget {
         if (!skipPageIfExists || !fs.existsSync(vmPath)) {
             const vmInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
             const vmInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            const vmConstructorArgs = models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ');
+            const vmConstructor = models.length > 0
+                ? `  ${pascal}ViewModel(${vmConstructorArgs});`
+                : `  ${pascal}ViewModel();`;
             fs.writeFileSync(vmPath, `import 'package:purebind/purebind.dart';
 ${vmInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
 
 ${vmInjectableAnnot}class ${pascal}ViewModel {
 ${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
 
-  ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
+${vmConstructor}
 
   final isFetching = Pure<bool>(false);
   final errorMessage = Pure<String?>(null);
@@ -2537,13 +3325,17 @@ class ${pascal}View extends StatelessWidget {
         if (!skipPageIfExists || !fs.existsSync(vmPath)) {
             const vmInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
             const vmInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            const vmConstructorArgs = models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ');
+            const vmConstructor = models.length > 0
+                ? `  ${pascal}ViewModel(${vmConstructorArgs});`
+                : `  ${pascal}ViewModel();`;
             fs.writeFileSync(vmPath, `import 'package:get/get.dart';
 ${vmInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
 
 ${vmInjectableAnnot}class ${pascal}ViewModel extends GetxController {
 ${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
 
-  ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
+${vmConstructor}
 
   final isLoading = false.obs;
   final errorMessage = Rxn<String>();
@@ -2722,13 +3514,19 @@ class _${pascal}ViewState extends ConsumerState<${pascal}View> {
         // Default MVVM (ChangeNotifier)
         const vmPath = path.join(vmDir, `${name}_viewmodel.dart`);
         if (!skipPageIfExists || !fs.existsSync(vmPath)) {
+            const vmInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const vmInjectableAnnot = useInjectable ? "@injectable\n" : "";
+            const vmConstructorArgs = models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ');
+            const vmConstructor = models.length > 0
+                ? `  ${pascal}ViewModel(${vmConstructorArgs});`
+                : `  ${pascal}ViewModel();`;
             fs.writeFileSync(vmPath, `import 'package:flutter/material.dart';
-${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
+${vmInjectableImport}${models.map(m => `import '../models/${m.modelNameSnake}_model.dart';\nimport '../services/${m.modelNameSnake}_api_service.dart';`).join('\n')}
 
-class ${pascal}ViewModel extends ChangeNotifier {
+${vmInjectableAnnot}class ${pascal}ViewModel extends ChangeNotifier {
 ${models.map(m => `  final ${m.modelNamePascal}ApiService ${m.modelNameCamel}ApiService;`).join('\n')}
 
-  ${pascal}ViewModel(${models.map(m => `this.${m.modelNameCamel}ApiService`).join(', ')});
+${vmConstructor}
 
   bool _isLoading = false;
   bool get isLoading => _isLoading;
@@ -2967,6 +3765,37 @@ ${ucInjectableAnnot}class ${actionPascal}UseCase {
             }
         }
     }
+    else if (stateMgmt === 'Provider') {
+        const notifierPath = path.join(presDir, 'provider', `${featureName}_notifier.dart`);
+        if (fs.existsSync(notifierPath)) {
+            let content = fs.readFileSync(notifierPath, 'utf8');
+            const importLine = `import 'package:${packageName}/features/${featureName}/domain/usecases/${toSnakeCase(actionCamel)}_usecase.dart';\n`;
+            if (!content.includes(importLine)) {
+                content = importLine + content;
+            }
+            if (!content.includes("import 'package:get_it/get_it.dart';") && !content.includes(`import 'package:${packageName}/core/di/injection.dart';`)) {
+                content = `import 'package:${packageName}/core/di/injection.dart';\n` + content;
+            }
+            const methodCode = `\n  Future<void> ${actionCamel}() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      await getIt<${actionPascal}UseCase>().execute();
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }\n`;
+            const classTag = new RegExp(`(class ${featurePascal}Notifier[^{]*\\{)`);
+            if (classTag.test(content) && !content.includes(`Future<void> ${actionCamel}()`)) {
+                content = content.replace(classTag, `$1${methodCode}`);
+                fs.writeFileSync(notifierPath, content);
+            }
+        }
+    }
     else {
         const providerPath = path.join(presDir, 'riverpod', `${featureName}_provider.dart`);
         if (fs.existsSync(providerPath)) {
@@ -2987,9 +3816,11 @@ ${ucInjectableAnnot}class ${actionPascal}UseCase {
         }
     }
 }
-async function addMvvmApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName, responseModel = null) {
+async function addMvvmApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName, responseModel = null, isMvc = false) {
     const featDir = path.join(rootPath, 'lib', 'features', featureName);
-    const vmDir = path.join(featDir, 'viewmodels');
+    const vmDir = path.join(featDir, isMvc ? 'controllers' : 'viewmodels');
+    const vmFileName = isMvc ? `${featureName}_controller.dart` : `${featureName}_viewmodel.dart`;
+    const vmClassName = isMvc ? `${featurePascal}Controller` : `${featurePascal}ViewModel`;
     const modelsDir = path.join(featDir, 'models');
     const servicesDir = path.join(featDir, 'services');
     if (responseModel) {
@@ -3058,10 +3889,10 @@ ${serviceInjectableAnnot}class ${actionPascal}ResponseModelApiServiceImpl implem
         }
     }
     if (stateMgmt === 'BLoC') {
-        const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
+        const vmPath = path.join(vmDir, vmFileName);
         if (fs.existsSync(vmPath)) {
             let content = fs.readFileSync(vmPath, 'utf8');
-            const searchConstructor = `  ${featurePascal}ViewModel(`;
+            const searchConstructor = `  ${vmClassName}(`;
             const methodCode = `\n  Future<void> ${actionCamel}() async {
     emit(${featurePascal}Loading());
     try {
@@ -3083,10 +3914,10 @@ ${serviceInjectableAnnot}class ${actionPascal}ResponseModelApiServiceImpl implem
         }
     }
     else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
-        const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
+        const vmPath = path.join(vmDir, vmFileName);
         if (fs.existsSync(vmPath)) {
             let content = fs.readFileSync(vmPath, 'utf8');
-            const searchConstructor = `  ${featurePascal}ViewModel(`;
+            const searchConstructor = `  ${vmClassName}(`;
             const methodCode = `\n  Future<void> ${actionCamel}() async {
     try {
       final dio = getIt<Dio>();
@@ -3109,11 +3940,43 @@ ${serviceInjectableAnnot}class ${actionPascal}ResponseModelApiServiceImpl implem
             }
         }
     }
-    else {
-        const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
+    else if (stateMgmt === 'Provider') {
+        const vmPath = path.join(vmDir, vmFileName);
         if (fs.existsSync(vmPath)) {
             let content = fs.readFileSync(vmPath, 'utf8');
-            const classTag = `class ${featurePascal}ViewModel extends _\$${featurePascal}ViewModel {`;
+            if (!content.includes("import 'package:dio/dio.dart';")) {
+                content = "import 'package:dio/dio.dart';\n" + content;
+            }
+            if (!content.includes("import 'package:get_it/get_it.dart';") && !content.includes(`import 'package:${packageName}/core/di/injection.dart';`)) {
+                content = `import 'package:${packageName}/core/di/injection.dart';\n` + content;
+            }
+            const methodCode = `\n  Future<void> ${actionCamel}() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final dio = getIt<Dio>();
+      await dio.${httpMethod.toLowerCase()}('${endpoint}');
+      await fetch${featurePascal}Data();
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }\n`;
+            const classTag = new RegExp(`(class ${vmClassName}[^{]*\\{)`);
+            if (classTag.test(content) && !content.includes(`Future<void> ${actionCamel}()`)) {
+                content = content.replace(classTag, `$1${methodCode}`);
+                fs.writeFileSync(vmPath, content);
+            }
+        }
+    }
+    else {
+        const vmPath = path.join(vmDir, vmFileName);
+        if (fs.existsSync(vmPath)) {
+            let content = fs.readFileSync(vmPath, 'utf8');
+            const classTag = `class ${vmClassName} extends _\$${vmClassName} {`;
             let methodCode = '';
             if (responseModel) {
                 const responseImport = `import '../models/${toSnakeCase(actionCamel)}_response_model.dart';\n`;
@@ -3211,6 +4074,30 @@ async function addLocalStateAction(rootPath, featureName, featurePascal, actionC
                 }
             }
         }
+        else if (stateMgmt === 'Provider') {
+            const notifierPath = path.join(presDir, 'provider', `${featureName}_notifier.dart`);
+            if (fs.existsSync(notifierPath)) {
+                let content = fs.readFileSync(notifierPath, 'utf8');
+                const methodCode = `\n  Future<void> ${actionCamel}() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      // TODO: Implement local action logic here
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }\n`;
+                const classTag = new RegExp(`(class ${featurePascal}Notifier[^{]*\\{)`);
+                if (classTag.test(content) && !content.includes(`Future<void> ${actionCamel}()`)) {
+                    content = content.replace(classTag, `$1${methodCode}`);
+                    fs.writeFileSync(notifierPath, content);
+                }
+            }
+        }
         else {
             const providerPath = path.join(presDir, 'riverpod', `${featureName}_provider.dart`);
             if (fs.existsSync(providerPath)) {
@@ -3231,12 +4118,16 @@ async function addLocalStateAction(rootPath, featureName, featurePascal, actionC
         }
     }
     else {
-        // MVVM
+        // MVC or MVVM
+        const isMvc = arch.includes('MVC');
+        const targetDir = path.join(featDir, isMvc ? 'controllers' : 'viewmodels');
+        const targetFileName = isMvc ? `${featureName}_controller.dart` : `${featureName}_viewmodel.dart`;
+        const targetClassName = isMvc ? `${featurePascal}Controller` : `${featurePascal}ViewModel`;
+        const targetPath = path.join(targetDir, targetFileName);
         if (stateMgmt === 'BLoC') {
-            const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
-            if (fs.existsSync(vmPath)) {
-                let content = fs.readFileSync(vmPath, 'utf8');
-                const classTag = `class ${featurePascal}ViewModel extends Cubit<${featurePascal}State> {`;
+            if (fs.existsSync(targetPath)) {
+                let content = fs.readFileSync(targetPath, 'utf8');
+                const classTag = `class ${targetClassName} extends Cubit<${featurePascal}State> {`;
                 const stateDecl = `class ${actionPascal}LoadingState extends ${featurePascal}State {}\n` +
                     `class ${actionPascal}SuccessState extends ${featurePascal}State {}\n` +
                     `class ${actionPascal}ErrorState extends ${featurePascal}State {\n  final String errorMessage;\n  ${actionPascal}ErrorState(this.errorMessage);\n}\n\n`;
@@ -3250,13 +4141,12 @@ async function addLocalStateAction(rootPath, featureName, featurePascal, actionC
     }
   }\n`;
                 content = content.replace(classTag, `${stateDecl}${classTag}\n${methodCode}`);
-                fs.writeFileSync(vmPath, content);
+                fs.writeFileSync(targetPath, content);
             }
         }
         else if (stateMgmt === 'PureBind' || stateMgmt === 'GetX') {
-            const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
-            if (fs.existsSync(vmPath)) {
-                let content = fs.readFileSync(vmPath, 'utf8');
+            if (fs.existsSync(targetPath)) {
+                let content = fs.readFileSync(targetPath, 'utf8');
                 const methodCode = `\n  Future<void> ${actionCamel}() async {
     try {
       errorMessage.value = null;
@@ -3265,22 +4155,45 @@ async function addLocalStateAction(rootPath, featureName, featurePascal, actionC
       errorMessage.value = e.toString();
     }
   }\n`;
-                const searchConstructor = `  ${featurePascal}ViewModel(`;
+                const searchConstructor = `  ${targetClassName}(`;
                 if (content.includes(searchConstructor) && !content.includes(`Future<void> ${actionCamel}()`)) {
                     const idx = content.indexOf(searchConstructor);
                     const semicolonIdx = content.indexOf(';', idx);
                     if (semicolonIdx !== -1) {
                         content = content.slice(0, semicolonIdx + 1) + methodCode + content.slice(semicolonIdx + 1);
-                        fs.writeFileSync(vmPath, content);
+                        fs.writeFileSync(targetPath, content);
                     }
                 }
             }
         }
+        else if (stateMgmt === 'Provider') {
+            if (fs.existsSync(targetPath)) {
+                let content = fs.readFileSync(targetPath, 'utf8');
+                const methodCode = `\n  Future<void> ${actionCamel}() async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      // TODO: Implement local action logic here
+    } catch (e) {
+      _errorMessage = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }\n`;
+                const classTag = new RegExp(`(class ${targetClassName}[^{]*\\{)`);
+                if (classTag.test(content) && !content.includes(`Future<void> ${actionCamel}()`)) {
+                    content = content.replace(classTag, `$1${methodCode}`);
+                    fs.writeFileSync(targetPath, content);
+                }
+            }
+        }
         else {
-            const vmPath = path.join(vmDir, `${featureName}_viewmodel.dart`);
-            if (fs.existsSync(vmPath)) {
-                let content = fs.readFileSync(vmPath, 'utf8');
-                const classTag = `class ${featurePascal}ViewModel extends _\$${featurePascal}ViewModel {`;
+            // Riverpod
+            if (fs.existsSync(targetPath)) {
+                let content = fs.readFileSync(targetPath, 'utf8');
+                const classTag = `class ${targetClassName} extends _\$${targetClassName} {`;
                 const methodCode = `  Future<void> ${actionCamel}() async {
     state = const AsyncValue.loading();
     try {
@@ -3291,7 +4204,7 @@ async function addLocalStateAction(rootPath, featureName, featurePascal, actionC
     }
   }\n`;
                 content = content.replace(classTag, `${classTag}\n${methodCode}`);
-                fs.writeFileSync(vmPath, content);
+                fs.writeFileSync(targetPath, content);
             }
         }
     }
@@ -3341,6 +4254,7 @@ APP_NAME=Flutter Config App
         }
     }
 }
+exports.generateEnvFile = generateEnvFile;
 function generateL10nConfig(rootPath) {
     const l10nYamlPath = path.join(rootPath, 'l10n.yaml');
     if (!fs.existsSync(l10nYamlPath)) {
@@ -3393,6 +4307,7 @@ extension AppLocalizationsX on BuildContext {
         fs.writeFileSync(extPath, extTemplate);
     }
 }
+exports.generateL10nConfig = generateL10nConfig;
 function updateMainDartForEnv(rootPath) {
     const mainPath = path.join(rootPath, 'lib', 'main.dart');
     if (!fs.existsSync(mainPath))
@@ -3584,6 +4499,7 @@ class NotificationService {
         fs.writeFileSync(servicePath, serviceTemplate);
     }
 }
+exports.generateNotificationService = generateNotificationService;
 function updateMainDartForNotifications(rootPath) {
     const mainPath = path.join(rootPath, 'lib', 'main.dart');
     if (!fs.existsSync(mainPath))
@@ -3780,6 +4696,7 @@ class ConnectivityInterceptor extends Interceptor {
     }
     updateDioForConnectivity(rootPath);
 }
+exports.generateConnectivityFiles = generateConnectivityFiles;
 function generateSecurityFiles(rootPath) {
     const serviceDir = path.join(rootPath, 'lib', 'core', 'services');
     fs.mkdirSync(serviceDir, { recursive: true });
@@ -3844,6 +4761,7 @@ class EncryptionService {
         fs.writeFileSync(encryptionPath, encryptionTemplate);
     }
 }
+exports.generateSecurityFiles = generateSecurityFiles;
 function generateThemeFiles(rootPath) {
     const themeDir = path.join(rootPath, 'lib', 'core', 'theme');
     fs.mkdirSync(themeDir, { recursive: true });
@@ -4044,6 +4962,7 @@ class AppTheme {
         fs.writeFileSync(themePath, themeTemplate);
     }
 }
+exports.generateThemeFiles = generateThemeFiles;
 function updateMainDartForTheme(rootPath) {
     const mainPath = path.join(rootPath, 'lib', 'main.dart');
     if (!fs.existsSync(mainPath))
@@ -4232,12 +5151,13 @@ if (keystorePropertiesFile.exists()) {
         return false;
     }
 }
+exports.configureAndroidSigning = configureAndroidSigning;
 async function runBuildRunner(rootPath) {
     return new Promise((resolve) => {
-        (0, child_process_1.exec)('flutter pub run build_runner build --delete-conflicting-outputs', { cwd: rootPath }, (err, stdout, stderr) => {
+        (0, child_process_1.exec)('dart run build_runner build', { cwd: rootPath, env: getExtendedEnv() }, (err, stdout, stderr) => {
             if (err) {
                 console.error(`Build runner error: ${stderr || err.message}`);
-                vscode.window.showWarningMessage(`Build Runner completed with warnings/errors. You can run 'flutter pub run build_runner build --delete-conflicting-outputs' in terminal if needed.`);
+                vscode.window.showWarningMessage(`Build Runner completed with warnings/errors. You can run 'dart run build_runner build' in terminal if needed.`);
             }
             else {
                 console.log(`Build runner finished successfully: ${stdout}`);
@@ -5124,33 +6044,20 @@ function buildFlutterConfigLintBlock(architecture, stateManagement, existingRule
     # Architecture: ${architecture}
     # State Management: ${stateManagement}
 
-    # --- Shared Flutter best practices ---
+    # Shared Flutter best practices
 ${sharedRules}
 
-    # --- Architecture: ${architecture} ---
+    # Architecture rules
 ${archRules}
 
-    # --- State Management: ${stateManagement} ---
+    # State management rules
 ${stateRules}
 ${FLUTTER_CONFIG_LINT_END}`;
 }
 function removeIncompatibleCustomLintPlugin(content) {
-    const lines = content.split('\n');
-    const output = [];
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (/^\s{4}-\s*custom_lint\s*$/.test(line)) {
-            continue;
-        }
-        if (/^\s{2}plugins:\s*$/.test(line)) {
-            const nextLine = lines[i + 1];
-            if (!nextLine || /^\S/.test(nextLine) || /^\s{2}\S/.test(nextLine)) {
-                continue;
-            }
-        }
-        output.push(line);
-    }
-    return output.join('\n');
+    let result = content.replace(/^\s*-\s*custom_lint\s*(\r?\n|$)/gm, '');
+    result = result.replace(/^\s*plugins:\s*(\r?\n)+(?=\s*[a-zA-Z0-9_]+:|\S|$)/gm, '');
+    return result;
 }
 function generateAnalysisOptions(rootPath, architecture, stateManagement) {
     const analysisPath = path.join(rootPath, 'analysis_options.yaml');
@@ -5184,15 +6091,17 @@ ${buildFlutterConfigLintBlock(architecture, stateManagement)}
     if (!content.includes('include: package:flutter_lints/flutter.yaml')) {
         content = `include: package:flutter_lints/flutter.yaml\n\n${content}`;
     }
+    if (!content.endsWith('\n')) {
+        content += '\n';
+    }
     if (content.match(/^linter:\s*$/m) && content.match(/^\s{2}rules:\s*$/m)) {
-        content = content.replace(/^(\s{2}rules:\s*\n)/m, `$1${generatedBlock}\n`);
+        content = content.replace(/^(\s{2}rules:\s*\r?\n)/m, `$1${generatedBlock}\n`);
     }
     else if (content.match(/^linter:\s*$/m)) {
-        content = content.replace(/^(linter:\s*\n)/m, `$1  rules:\n${generatedBlock}\n`);
+        content = content.replace(/^(linter:\s*\r?\n)/m, `$1  rules:\n${generatedBlock}\n`);
     }
     else {
-        const needsTrailingNewline = content.length > 0 && !content.endsWith('\n');
-        content = `${content}${needsTrailingNewline ? '\n' : ''}\nlinter:\n  rules:\n${generatedBlock}\n`;
+        content = `${content}\nlinter:\n  rules:\n${generatedBlock}\n`;
     }
     fs.writeFileSync(analysisPath, content);
 }

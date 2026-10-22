@@ -2,7 +2,7 @@
   "name": "flutter-config",
   "displayName": "Flutter Config",
   "description": "Standardized MVVM, Clean Architecture & MVC generator with BLoC, Riverpod, Provider, PureBind, GetX, flutter_lints, Freezed, CI/CD, and Flavors support",
-  "version": "0.0.54",
+  "version": "0.0.55",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -134,6 +134,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "test:unit": "npm run compile && mocha --ui tdd -r ./src/test/mock-vscode.js out/test/suite/unit.test.js out/test/suite/qa.test.js",
     "test": "npm run compile && node ./out/test/runTest.js"
   },
   "devDependencies": {

@@ -22,6 +22,7 @@ suite('Integration Tests', () => {
         const expectedCommands = [
             'flutter-config.init',
             'flutter-config.createScreen',
+            'flutter-config.generateForExistingScreen',
             'flutter-config.generateApiAction',
             'flutter-config.generateLocalStateAction',
             'flutter-config.initEnv',

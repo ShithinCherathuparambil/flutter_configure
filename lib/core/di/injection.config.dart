@@ -12,7 +12,7 @@
 import 'package:dio/dio.dart' as _i361;
 import 'package:get_it/get_it.dart' as _i174;
 import 'package:injectable/injectable.dart' as _i526;
-import 'package:test_project/core/dio_configuration.dart' as _i169;
+import 'package:test_project/core/network/dio_configuration.dart' as _i917;
 import 'package:test_project/features/user/data/datasources/user_remote_data_source.dart'
     as _i1009;
 import 'package:test_project/features/user/data/repositories/user_repository_impl.dart'
@@ -49,4 +49,4 @@ extension GetItInjectableX on _i174.GetIt {
   }
 }
 
-class _$DioModule extends _i169.DioModule {}
+class _$DioModule extends _i917.DioModule {}
