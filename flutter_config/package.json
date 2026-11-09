@@ -2,7 +2,11 @@
   "name": "flutter-config",
   "displayName": "Flutter Config",
   "description": "Standardized MVVM, Clean Architecture & MVC generator with BLoC, Riverpod, Provider, PureBind, GetX, flutter_lints, Freezed, CI/CD, and Flavors support",
-  "version": "0.0.55",
+  "version": "0.0.67",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ShithinCherathuparambil/flutter_configure.git"
+  },
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -52,6 +56,10 @@
       {
         "command": "flutter-config.initSecurity",
         "title": "Flutter Config: Initialize Security"
+      },
+      {
+        "command": "flutter-config.initHive",
+        "title": "Flutter Config: Initialize Hive (Local Database)"
       },
       {
         "command": "flutter-config.initTheme",
@@ -134,7 +142,7 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test:unit": "npm run compile && mocha --ui tdd -r ./src/test/mock-vscode.js out/test/suite/unit.test.js out/test/suite/qa.test.js",
+    "test:unit": "npm run compile && node ./src/test/runNodeTests.js",
     "test": "npm run compile && node ./out/test/runTest.js"
   },
   "devDependencies": {

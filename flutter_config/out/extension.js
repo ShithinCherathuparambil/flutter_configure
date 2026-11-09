@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deactivate = exports.configurePubspecForLints = exports.generateAnalysisOptions = exports.getStateManagementLintRules = exports.getArchitectureLintRules = exports.generatePaginatedListFiles = exports.configureIosMethodChannel = exports.configureAndroidMethodChannel = exports.generateMethodChannelDartFile = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.configureAndroidSigning = exports.generateThemeFiles = exports.generateSecurityFiles = exports.generateConnectivityFiles = exports.generateNotificationService = exports.generateL10nConfig = exports.generateEnvFile = exports.generateMVVMFiles = exports.generateMVCFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.getExtendedEnv = exports.isInjectableEnabled = exports.findProjectRoot = exports.getPackageName = exports.parseJsonToModel = exports.activate = exports.STATE_MANAGEMENT_OPTIONS = exports.ARCHITECTURE_OPTIONS = void 0;
+exports.configurePubspecForHive = exports.generateAnalysisOptions = exports.getStateManagementLintRules = exports.getArchitectureLintRules = exports.generatePaginatedListFiles = exports.configureIosMethodChannel = exports.configureAndroidMethodChannel = exports.generateMethodChannelDartFile = exports.configureIosFlavors = exports.configureAndroidFlavors = exports.generateFlavorFiles = exports.generateGitHubActionsWorkflow = exports.generateTestBoilerplate = exports.configurePubspecForTesting = exports.configureAndroidSigning = exports.ensureHiveEnvironment = exports.ensureBuildYamlForExplicitToJson = exports.ensureHiveServiceInDi = exports.updateMainDartForHive = exports.generateThemeFiles = exports.generateHiveFiles = exports.generateSecurityFiles = exports.generateConnectivityFiles = exports.generateNotificationService = exports.generateL10nConfig = exports.generateEnvFile = exports.addLocalStateAction = exports.addMvvmApiAction = exports.addCleanArchApiAction = exports.generateMVVMFiles = exports.generateMVCFiles = exports.generateCleanArchFiles = exports.registerDependenciesInLocator = exports.registerRouteInGoRouter = exports.registerProviderInProvidersList = exports.findDiFilePath = exports.updateMainDartForRouterAndScreenUtil = exports.generateCoreConfig = exports.toCamelCase = exports.toPascalCase = exports.toSnakeCase = exports.getExtendedEnv = exports.isInjectableEnabled = exports.findProjectRoot = exports.getPackageName = exports.parseJsonToModel = exports.promptForHive = exports.activate = exports.STATE_MANAGEMENT_OPTIONS = exports.ARCHITECTURE_OPTIONS = void 0;
+exports.deactivate = exports.configurePubspecForLints = void 0;
 const vscode = require("vscode");
 const fs = require("fs");
 const path = require("path");
@@ -94,6 +95,7 @@ function activate(context) {
         const featurePascal = toPascalCase(screenInput);
         const featureCamel = toCamelCase(screenInput);
         const models = await promptForModels(featurePascal, featureName, featureCamel);
+        const useHive = await promptForHive(featurePascal);
         // Determine destination folder
         let targetDir = uri ? uri.fsPath : path.join(rootPath, 'lib', 'features');
         if (!fs.existsSync(targetDir)) {
@@ -106,19 +108,24 @@ function activate(context) {
             title: `Generating ${featurePascal} Feature...`,
             cancellable: false
         }, async (progress) => {
+            if (useHive) {
+                progress.report({ message: "Configuring Hive local database..." });
+                const boxNames = models.length > 0 ? models.map(m => `${m.modelNameSnake}_box`) : [`${featureName}_box`];
+                await ensureHiveEnvironment(rootPath, boxNames);
+            }
             if (!fs.existsSync(path.join(rootPath, 'lib', 'core', 'di', 'injection.dart'))) {
                 generateCoreConfig(rootPath);
             }
             if (arch?.includes('Clean')) {
-                generateCleanArchFiles(targetDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName);
+                generateCleanArchFiles(targetDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, false, useHive);
             }
             else if (arch?.includes('MVC')) {
-                generateMVCFiles(targetDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName);
+                generateMVCFiles(targetDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, false, useHive);
             }
             else {
-                generateMVVMFiles(targetDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName);
+                generateMVVMFiles(targetDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, false, useHive);
             }
-            registerDependenciesInLocator(rootPath, featureName, featurePascal, packageName, arch, stateMgmt, models);
+            registerDependenciesInLocator(rootPath, featureName, featurePascal, packageName, arch, stateMgmt, models, useHive);
             registerRouteInGoRouter(rootPath, featureName, featurePascal, packageName, arch, stateMgmt);
             progress.report({ message: "Running Build Runner to generate files..." });
             await runBuildRunner(rootPath);
@@ -159,6 +166,7 @@ function activate(context) {
         }
         // Ask for JSON API models
         const models = await promptForModels(featurePascal, featureName, featureCamel);
+        const useHive = await promptForHive(featurePascal);
         // Determine package name
         let packageName = getPackageName(rootPath);
         vscode.window.withProgress({
@@ -166,19 +174,24 @@ function activate(context) {
             title: `Generating Configs for Existing ${featurePascal} Screen...`,
             cancellable: false
         }, async (progress) => {
+            if (useHive) {
+                progress.report({ message: "Configuring Hive local database..." });
+                const boxNames = models.length > 0 ? models.map(m => `${m.modelNameSnake}_box`) : [`${featureName}_box`];
+                await ensureHiveEnvironment(rootPath, boxNames);
+            }
             if (!fs.existsSync(path.join(rootPath, 'lib', 'core', 'di', 'injection.dart'))) {
                 generateCoreConfig(rootPath);
             }
             if (arch?.includes('Clean')) {
-                generateCleanArchFiles(featuresDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, true);
+                generateCleanArchFiles(featuresDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, true, useHive);
             }
             else if (arch?.includes('MVC')) {
-                generateMVCFiles(featuresDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, true);
+                generateMVCFiles(featuresDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, true, useHive);
             }
             else {
-                generateMVVMFiles(featuresDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, true);
+                generateMVVMFiles(featuresDir, featureName, featurePascal, featureCamel, stateMgmt, models, packageName, true, useHive);
             }
-            registerDependenciesInLocator(rootPath, featureName, featurePascal, packageName, arch, stateMgmt, models);
+            registerDependenciesInLocator(rootPath, featureName, featurePascal, packageName, arch, stateMgmt, models, useHive);
             registerRouteInGoRouter(rootPath, featureName, featurePascal, packageName, arch, stateMgmt);
             progress.report({ message: "Running Build Runner to generate files..." });
             await runBuildRunner(rootPath);
@@ -520,6 +533,37 @@ ${cubitInjectableAnnot}class ${cubitPascal}Cubit extends Cubit<${cubitPascal}Sta
             }
             else {
                 vscode.window.showInformationMessage("Successfully initialized Security config (Secure Storage, AES, and SSL Pinning support)!");
+            }
+        });
+    });
+    let initHiveDisposable = vscode.commands.registerCommand('flutter-config.initHive', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a Flutter workspace first.');
+            return;
+        }
+        const rootPath = workspaceFolder.uri.fsPath;
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: "Flutter Config: Initializing Hive Local Database...",
+            cancellable: false
+        }, async (progress) => {
+            progress.report({ message: "Adding Hive dependencies..." });
+            const pubAddOk = await runPubAdd('hive hive_flutter', rootPath);
+            progress.report({ message: "Configuring pubspec.yaml for Hive..." });
+            configurePubspecForHive(rootPath);
+            progress.report({ message: "Generating Hive Service..." });
+            const hiveAlreadyExisted = fs.existsSync(path.join(rootPath, 'lib', 'core', 'services', 'hive_service.dart'));
+            generateHiveFiles(rootPath);
+            updateMainDartForHive(rootPath);
+            if (!pubAddOk) {
+                vscode.window.showWarningMessage("Generated Hive config files, but dependency install failed. Run 'flutter pub add hive hive_flutter' manually.");
+            }
+            else if (hiveAlreadyExisted) {
+                vscode.window.showInformationMessage("hive_service.dart already existed and was left unchanged; main.dart integration was refreshed.");
+            }
+            else {
+                vscode.window.showInformationMessage("Successfully initialized Hive local database and integrated it into main.dart!");
             }
         });
     });
@@ -921,6 +965,7 @@ ${cubitInjectableAnnot}class ${cubitPascal}Cubit extends Cubit<${cubitPascal}Sta
     context.subscriptions.push(initNotificationsDisposable);
     context.subscriptions.push(initConnectivityDisposable);
     context.subscriptions.push(initSecurityDisposable);
+    context.subscriptions.push(initHiveDisposable);
     context.subscriptions.push(initThemeDisposable);
     context.subscriptions.push(generateSignedAppBundleDisposable);
     context.subscriptions.push(initTestsDisposable);
@@ -1027,33 +1072,47 @@ async function promptForModels(featurePascal, featureName, featureCamel) {
     }
     return models;
 }
+async function promptForHive(featurePascal) {
+    const choice = await vscode.window.showQuickPick([
+        { label: 'Yes', description: `Complete Offline Feature: 100% Hive local database, full CRUD, interactive list UI, and validation for ${featurePascal}` },
+        { label: 'No', description: 'Remote API only, no local offline storage' }
+    ], {
+        placeHolder: `Do you want to use Hive for offline storage & full CRUD for ${featurePascal}?`,
+        ignoreFocusOut: true
+    });
+    return choice?.label === 'Yes';
+}
+exports.promptForHive = promptForHive;
 function parseJsonToModel(name, inputJson) {
     const pascal = toPascalCase(name);
     const snake = toSnakeCase(name);
     const camel = toCamelCase(name);
     let properties = [];
+    const childModels = [];
     if (inputJson && inputJson.trim() !== '') {
         try {
             const parsed = JSON.parse(inputJson.trim());
-            for (const key of Object.keys(parsed)) {
-                const value = parsed[key];
-                let type = 'dynamic';
-                if (typeof value === 'number') {
-                    type = Number.isInteger(value) ? 'int' : 'double';
+            if (Array.isArray(parsed)) {
+                const objectItems = parsed.filter(item => item && typeof item === 'object' && !Array.isArray(item));
+                if (objectItems.length > 0) {
+                    const merged = mergeObjectKeys(objectItems);
+                    const result = parseObjectToModel(pascal, snake, camel, merged, name, objectItems);
+                    result.isRootList = true;
+                    return result;
                 }
-                else if (typeof value === 'string') {
-                    type = 'String';
+                else {
+                    return {
+                        modelName: name,
+                        modelNamePascal: pascal,
+                        modelNameSnake: snake,
+                        modelNameCamel: camel,
+                        properties: [{ name: 'items', type: 'List<dynamic>' }],
+                        isRootList: true
+                    };
                 }
-                else if (typeof value === 'boolean') {
-                    type = 'bool';
-                }
-                else if (Array.isArray(value)) {
-                    type = 'List<dynamic>';
-                }
-                else if (value && typeof value === 'object') {
-                    type = 'Map<String, dynamic>';
-                }
-                properties.push({ name: key, type: type });
+            }
+            if (parsed && typeof parsed === 'object') {
+                return parseObjectToModel(pascal, snake, camel, parsed, name);
             }
         }
         catch (e) {
@@ -1075,10 +1134,140 @@ function parseJsonToModel(name, inputJson) {
         modelNamePascal: pascal,
         modelNameSnake: snake,
         modelNameCamel: camel,
-        properties: properties
+        properties: properties,
+        childModels: childModels
     };
 }
 exports.parseJsonToModel = parseJsonToModel;
+function mergeObjectKeys(items) {
+    const merged = {};
+    for (const item of items) {
+        if (!item || typeof item !== 'object')
+            continue;
+        for (const [k, v] of Object.entries(item)) {
+            if (!(k in merged) || (merged[k] === null && v !== null)) {
+                merged[k] = v;
+            }
+        }
+    }
+    return merged;
+}
+function parseObjectToModel(modelPascal, modelSnake, modelCamel, obj, rawName, itemsToScan) {
+    const properties = [];
+    const childModels = [];
+    const items = itemsToScan && itemsToScan.length > 0 ? itemsToScan : [obj];
+    const allKeys = [];
+    for (const it of items) {
+        if (!it || typeof it !== 'object')
+            continue;
+        for (const k of Object.keys(it)) {
+            if (!allKeys.includes(k))
+                allKeys.push(k);
+        }
+    }
+    for (const key of allKeys) {
+        const keyPascal = toPascalCase(key);
+        let observedType = null;
+        let hasNull = false;
+        let hasMissing = false;
+        let isNestedList = false;
+        let isNestedModel = false;
+        let childModelPascal;
+        const sampleObjectItems = [];
+        let sampleSingleObject = null;
+        for (const it of items) {
+            if (!(key in it)) {
+                hasMissing = true;
+                continue;
+            }
+            const val = it[key];
+            if (val === null || val === undefined) {
+                hasNull = true;
+                continue;
+            }
+            if (typeof val === 'number') {
+                if (observedType === null) {
+                    observedType = Number.isInteger(val) ? 'int' : 'double';
+                }
+            }
+            else if (typeof val === 'string') {
+                observedType = 'String';
+            }
+            else if (typeof val === 'boolean') {
+                observedType = 'bool';
+            }
+            else if (Array.isArray(val)) {
+                isNestedList = true;
+                const innerObjects = val.filter((v) => v && typeof v === 'object' && !Array.isArray(v));
+                if (innerObjects.length > 0) {
+                    sampleObjectItems.push(...innerObjects);
+                }
+            }
+            else if (val && typeof val === 'object') {
+                isNestedModel = true;
+                if (!sampleSingleObject) {
+                    sampleSingleObject = val;
+                }
+            }
+        }
+        if (isNestedList) {
+            if (sampleObjectItems.length > 0) {
+                childModelPascal = `${modelPascal}${keyPascal}`;
+                const childSnake = toSnakeCase(childModelPascal);
+                const childCamel = toCamelCase(childModelPascal);
+                const mergedChildObj = mergeObjectKeys(sampleObjectItems);
+                const childModel = parseObjectToModel(childModelPascal, childSnake, childCamel, mergedChildObj, childModelPascal, sampleObjectItems);
+                childModels.push(childModel);
+                observedType = `List<${childModelPascal}Model>`;
+            }
+            else {
+                observedType = 'List<dynamic>';
+            }
+        }
+        else if (isNestedModel) {
+            if (sampleSingleObject) {
+                childModelPascal = `${modelPascal}${keyPascal}`;
+                const childSnake = toSnakeCase(childModelPascal);
+                const childCamel = toCamelCase(childModelPascal);
+                const childModel = parseObjectToModel(childModelPascal, childSnake, childCamel, sampleSingleObject, childModelPascal);
+                childModels.push(childModel);
+                observedType = `${childModelPascal}Model`;
+            }
+            else {
+                observedType = 'Map<String, dynamic>';
+            }
+        }
+        if (!observedType) {
+            observedType = 'dynamic';
+        }
+        const shouldBeNullable = (hasNull || hasMissing || (isNestedList && Boolean(childModelPascal)) || (isNestedModel && Boolean(childModelPascal))) && observedType !== 'dynamic';
+        const finalType = shouldBeNullable ? `${observedType}?` : observedType;
+        properties.push({
+            name: key,
+            type: finalType,
+            isNestedList: isNestedList && Boolean(childModelPascal),
+            isNestedModel: isNestedModel && Boolean(childModelPascal),
+            childModelPascal: childModelPascal
+        });
+    }
+    const hasId = properties.some(p => /^(id|_id|uuid)$/i.test(p.name) || /id$/i.test(p.name));
+    if (!hasId && properties.length > 0) {
+        properties.unshift({
+            name: 'id',
+            type: 'String?',
+            isNestedList: false,
+            isNestedModel: false
+        });
+    }
+    return {
+        modelName: rawName,
+        modelNamePascal: modelPascal,
+        modelNameSnake: modelSnake,
+        modelNameCamel: modelCamel,
+        properties: properties,
+        childModels: childModels
+    };
+}
 function getPackageName(rootPath) {
     let packageName = 'flutter_project';
     try {
@@ -1351,13 +1540,29 @@ async function installDependencies(rootPath, stateManagement) {
         runPubAdd(packagesArg, rootPath).then(resolve);
     });
 }
-function generateCoreConfig(rootPath) {
+function generateCoreConfig(rootPath, stateMgmt) {
+    ensureBuildYamlForExplicitToJson(rootPath);
     const diDir = path.join(rootPath, 'lib', 'core', 'di');
     const networkDir = path.join(rootPath, 'lib', 'core', 'network');
     const routerDir = path.join(rootPath, 'lib', 'core', 'router');
     fs.mkdirSync(diDir, { recursive: true });
     fs.mkdirSync(networkDir, { recursive: true });
     fs.mkdirSync(routerDir, { recursive: true });
+    if (stateMgmt === 'Provider') {
+        const providersDir = path.join(rootPath, 'lib', 'core', 'providers');
+        const providersPath = path.join(providersDir, 'providers.dart');
+        if (!fs.existsSync(providersPath)) {
+            fs.mkdirSync(providersDir, { recursive: true });
+            const defaultTemplate = `// ignore_for_file: unused_import
+import 'package:provider/provider.dart';
+import 'package:provider/single_child_widget.dart';
+
+List<SingleChildWidget> getProviders() => [
+];
+`;
+            fs.writeFileSync(providersPath, defaultTemplate);
+        }
+    }
     // 1. Token Service Config
     const tokenServicePath = path.join(networkDir, 'token_service.dart');
     if (!fs.existsSync(tokenServicePath)) {
@@ -1513,6 +1718,20 @@ extension DioExtensions on Dio {
     }
   }
 
+  Future<Response<T>> patchRequest<T>(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+    CancelToken? cancelToken,
+  }) async {
+    try {
+      return await patch<T>(path, data: data, queryParameters: queryParameters, options: options, cancelToken: cancelToken);
+    } on DioException catch (e) {
+      throw Exception(e.message);
+    }
+  }
+
   Future<Response<T>> deleteRequest<T>(
     String path, {
     dynamic data,
@@ -1622,7 +1841,12 @@ class MyApp extends StatelessWidget {
   }
 }
 `;
-    fs.writeFileSync(mainPath, mainTemplate);
+    let finalMainContent = mainTemplate;
+    if (stateMgmt === 'Provider') {
+        finalMainContent = "import 'package:provider/provider.dart';\nimport 'core/providers/providers.dart';\n" + finalMainContent;
+        finalMainContent = finalMainContent.replace(/runApp\(([\s\S]*?)\);/, 'runApp(\n    MultiProvider(\n      providers: getProviders(),\n      child: $1,\n    ),\n  );');
+    }
+    fs.writeFileSync(mainPath, finalMainContent);
     // Re-apply any previously initialized integrations so running "Init Architecture"
     // after Env/Localization/Notifications/Theme doesn't wipe them out.
     if (fs.existsSync(path.join(rootPath, '.env'))) {
@@ -1639,6 +1863,70 @@ class MyApp extends StatelessWidget {
     }
 }
 exports.updateMainDartForRouterAndScreenUtil = updateMainDartForRouterAndScreenUtil;
+function findDiFilePath(rootPath) {
+    const candidates = [
+        path.join(rootPath, 'lib', 'core', 'di', 'injection.dart'),
+        path.join(rootPath, 'lib', 'core', 'di', 'locator.dart'),
+        path.join(rootPath, 'lib', 'core', 'locator.dart'),
+        path.join(rootPath, 'lib', 'core', 'injection.dart'),
+        path.join(rootPath, 'lib', 'injection.dart'),
+        path.join(rootPath, 'lib', 'locator.dart'),
+    ];
+    for (const c of candidates) {
+        if (fs.existsSync(c))
+            return c;
+    }
+    return path.join(rootPath, 'lib', 'core', 'di', 'injection.dart');
+}
+exports.findDiFilePath = findDiFilePath;
+function registerProviderInProvidersList(rootPath, name, pascal, packageName, arch, models = []) {
+    registerDependenciesInLocator(rootPath, name, pascal, packageName, arch, 'Provider', models);
+    const providersDir = path.join(rootPath, 'lib', 'core', 'providers');
+    const providersPath = path.join(providersDir, 'providers.dart');
+    if (!fs.existsSync(providersPath)) {
+        fs.mkdirSync(providersDir, { recursive: true });
+        const defaultTemplate = `// ignore_for_file: unused_import
+import 'package:provider/provider.dart';
+import 'package:provider/single_child_widget.dart';
+
+List<SingleChildWidget> getProviders() => [
+];
+`;
+        fs.writeFileSync(providersPath, defaultTemplate);
+    }
+    let content = fs.readFileSync(providersPath, 'utf8');
+    const importPath = `import 'package:${packageName}/features/${name}/presentation/provider/${name}_notifier.dart';`;
+    const className = `${pascal}Notifier`;
+    const diFile = findDiFilePath(rootPath);
+    const relDiPath = path.relative(path.join(rootPath, 'lib'), diFile).replace(/\\/g, '/');
+    const diImport = `import 'package:${packageName}/${relDiPath}';`;
+    let importsToAdd = '';
+    if (!content.includes(importPath)) {
+        importsToAdd += `${importPath}\n`;
+    }
+    if (!content.includes(diImport)) {
+        importsToAdd += `${diImport}\n`;
+    }
+    const providerEntry = `  ChangeNotifierProvider<${className}>(create: (_) => getIt<${className}>()),`;
+    // Self-heal direct instantiation in providers.dart if present
+    content = content.replace(new RegExp(`ChangeNotifierProvider<${className}>\\s*\\(\\s*create:\\s*\\(_\\)\\s*=>\\s*${className}\\(\\)\\s*\\)`, 'g'), `ChangeNotifierProvider<${className}>(create: (_) => getIt<${className}>())`);
+    content = content.replace(new RegExp(`create:\\s*\\(_\\)\\s*=>\\s*${className}\\(\\)`, 'g'), `create: (_) => getIt<${className}>()`);
+    if (!content.includes(`ChangeNotifierProvider<${className}>`)) {
+        const listRegex = /(List<SingleChildWidget>\s+getProviders\s*\(\s*\)\s*=>\s*\[)([\s\S]*?)(\];)/;
+        if (listRegex.test(content)) {
+            content = content.replace(listRegex, `$1\n${providerEntry}$2$3`);
+        }
+        else if (content.includes('getProviders() => [')) {
+            const bracketIdx = content.indexOf('getProviders() => [') + 'getProviders() => ['.length;
+            content = content.slice(0, bracketIdx) + '\n' + providerEntry + content.slice(bracketIdx);
+        }
+    }
+    if (importsToAdd) {
+        content = importsToAdd + content;
+    }
+    fs.writeFileSync(providersPath, content);
+}
+exports.registerProviderInProvidersList = registerProviderInProvidersList;
 function registerRouteInGoRouter(rootPath, name, pascal, packageName, arch, stateMgmt) {
     const routerPath = path.join(rootPath, 'lib', 'core', 'router', 'app_router.dart');
     if (!fs.existsSync(routerPath))
@@ -1669,37 +1957,105 @@ function registerRouteInGoRouter(rootPath, name, pascal, packageName, arch, stat
         const tag = '// Routes register tag (DO NOT REMOVE)';
         content = content.replace(tag, routeDecl + '\n    ' + tag);
     }
+    if (content.includes("initialLocation: '/'")) {
+        content = content.replace("initialLocation: '/'", `initialLocation: ${pageClass}.route`);
+    }
     fs.writeFileSync(routerPath, content);
 }
 exports.registerRouteInGoRouter = registerRouteInGoRouter;
-function registerDependenciesInLocator(rootPath, name, pascal, packageName, arch, stateMgmt, models) {
-    if (isInjectableEnabled(rootPath))
-        return;
+function registerDependenciesInLocator(rootPath, name, pascal, packageName, arch, stateMgmt, models, useHive = false) {
     const diPath = path.join(rootPath, 'lib', 'core', 'di', 'injection.dart');
     if (!fs.existsSync(diPath))
         return;
     let content = fs.readFileSync(diPath, 'utf8');
+    // If configureDependencies was written as arrow function (e.g. with Injectable), convert to block
+    if (content.includes('void configureDependencies() => getIt.init();')) {
+        content = content.replace('void configureDependencies() => getIt.init();', 'void configureDependencies() {\n  getIt.init();\n  // Features register tag (DO NOT REMOVE)\n}');
+    }
+    // Self-healing: fix corrupted comment-swallowed registrations
+    content = content.replace(/\/\/\s*([A-Za-z0-9_]+)\s+Feature\s+(getIt\.)/g, '// $1 Feature\n  $2');
+    // Self-healing: fix double semicolons
+    content = content.replace(/;\s*;/g, ';');
     let imports = '';
     let registrations = '';
+    if (!content.includes('package:dio/dio.dart')) {
+        imports += "import 'package:dio/dio.dart';\n";
+    }
+    const discoveredUsecases = [];
+    const usecasesDir = path.join(rootPath, 'lib', 'features', name, 'domain', 'usecases');
+    if (fs.existsSync(usecasesDir)) {
+        const files = fs.readdirSync(usecasesDir).filter(f => f.endsWith('_usecase.dart'));
+        for (const f of files) {
+            const base = f.replace(/\.dart$/, '');
+            const normalized = base.replace(/_usecase$/, '_use_case');
+            const ucPascal = toPascalCase(normalized);
+            const ucCamel = toCamelCase(normalized);
+            const importLine = `import 'package:${packageName}/features/${name}/domain/usecases/${f}';\n`;
+            discoveredUsecases.push({ name: base, pascal: ucPascal, camel: ucCamel, importLine });
+        }
+    }
+    let allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      patch${m.modelNamePascal}UseCase: getIt<Patch${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
+    if (!allUsecaseArgs && discoveredUsecases.length > 0) {
+        allUsecaseArgs = discoveredUsecases.map(u => `${u.camel}: getIt<${u.pascal}>()`).join(',\n      ');
+        for (const u of discoveredUsecases) {
+            if (!content.includes(`getIt.registerLazySingleton<${u.pascal}>`)) {
+                imports += u.importLine;
+                registrations += `  getIt.registerLazySingleton<${u.pascal}>(\n    () => ${u.pascal}(getIt()),\n  );\n`;
+            }
+        }
+    }
+    // Self-healing: update empty constructor if usecases were discovered
+    if (discoveredUsecases.length > 0) {
+        const discoveredArgs = discoveredUsecases.map(u => `${u.camel}: getIt<${u.pascal}>()`).join(',\n      ');
+        const emptyConstructorRegex = new RegExp(`\\(\\)\\s*=>\\s*(${pascal}(?:Notifier|Bloc|Controller))\\s*\\(\\s*\\)`, 'g');
+        if (emptyConstructorRegex.test(content)) {
+            content = content.replace(emptyConstructorRegex, `() => $1(\n      ${discoveredArgs},\n    )`);
+            for (const u of discoveredUsecases) {
+                if (!content.includes(u.importLine.trim())) {
+                    imports += u.importLine;
+                }
+            }
+        }
+    }
     if (arch.includes('Clean')) {
         for (const m of models) {
+            const hasLocalDs = useHive || fs.existsSync(path.join(rootPath, 'lib', 'features', name, 'data', 'datasources', `${m.modelNameSnake}_local_data_source.dart`));
             const remoteDataSourceCheck = `getIt.registerLazySingleton<${m.modelNamePascal}RemoteDataSource>`;
             if (!content.includes(remoteDataSourceCheck)) {
+                if (hasLocalDs) {
+                    if (!content.includes('core/services/hive_service.dart') && !imports.includes('core/services/hive_service.dart')) {
+                        imports += `import 'package:${packageName}/core/services/hive_service.dart';\n`;
+                        registrations += `  if (!getIt.isRegistered<HiveService>()) {\n    getIt.registerLazySingleton<HiveService>(() => HiveService());\n  }\n`;
+                    }
+                    imports += `import 'package:${packageName}/features/${name}/data/datasources/${m.modelNameSnake}_local_data_source.dart';\n`;
+                }
                 imports += `import 'package:${packageName}/features/${name}/data/datasources/${m.modelNameSnake}_remote_data_source.dart';
 import 'package:${packageName}/features/${name}/data/repositories/${m.modelNameSnake}_repository_impl.dart';
 import 'package:${packageName}/features/${name}/domain/repositories/${m.modelNameSnake}_repository.dart';
 import 'package:${packageName}/features/${name}/domain/usecases/get_${m.modelNameSnake}_usecase.dart';
 import 'package:${packageName}/features/${name}/domain/usecases/create_${m.modelNameSnake}_usecase.dart';
 import 'package:${packageName}/features/${name}/domain/usecases/update_${m.modelNameSnake}_usecase.dart';
+import 'package:${packageName}/features/${name}/domain/usecases/patch_${m.modelNameSnake}_usecase.dart';
 import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.modelNameSnake}_usecase.dart';
 `;
+                const repoRegistration = hasLocalDs
+                    ? `  getIt.registerLazySingleton<${m.modelNamePascal}LocalDataSource>(
+    () => ${m.modelNamePascal}LocalDataSourceImpl(getIt<HiveService>()),
+  );
+  getIt.registerLazySingleton<${m.modelNamePascal}Repository>(
+    () => ${m.modelNamePascal}RepositoryImpl(
+      getIt<${m.modelNamePascal}RemoteDataSource>(),
+      getIt<${m.modelNamePascal}LocalDataSource>(),
+    ),
+  );`
+                    : `  getIt.registerLazySingleton<${m.modelNamePascal}Repository>(
+    () => ${m.modelNamePascal}RepositoryImpl(getIt<${m.modelNamePascal}RemoteDataSource>()),
+  );`;
                 registrations += `
   getIt.registerLazySingleton<${m.modelNamePascal}RemoteDataSource>(
     () => ${m.modelNamePascal}RemoteDataSourceImpl(getIt<Dio>()),
   );
-  getIt.registerLazySingleton<${m.modelNamePascal}Repository>(
-    () => ${m.modelNamePascal}RepositoryImpl(getIt<${m.modelNamePascal}RemoteDataSource>()),
-  );
+${repoRegistration}
   getIt.registerLazySingleton<Get${m.modelNamePascal}UseCase>(
     () => Get${m.modelNamePascal}UseCase(getIt<${m.modelNamePascal}Repository>()),
   );
@@ -1708,6 +2064,9 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
   );
   getIt.registerLazySingleton<Update${m.modelNamePascal}UseCase>(
     () => Update${m.modelNamePascal}UseCase(getIt<${m.modelNamePascal}Repository>()),
+  );
+  getIt.registerLazySingleton<Patch${m.modelNamePascal}UseCase>(
+    () => Patch${m.modelNamePascal}UseCase(getIt<${m.modelNamePascal}Repository>()),
   );
   getIt.registerLazySingleton<Delete${m.modelNamePascal}UseCase>(
     () => Delete${m.modelNamePascal}UseCase(getIt<${m.modelNamePascal}Repository>()),
@@ -1719,7 +2078,6 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
             const blocCheck = `getIt.registerFactory<${pascal}Bloc>`;
             if (!content.includes(blocCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/presentation/bloc/${name}_bloc.dart';\n`;
-                const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
                 const argsBlock = allUsecaseArgs ? `\n      ${allUsecaseArgs},\n    ` : '';
                 registrations += `  getIt.registerFactory<${pascal}Bloc>(
     () => ${pascal}Bloc(${argsBlock}),
@@ -1730,7 +2088,6 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
             const controllerCheck = `getIt.registerFactory<${pascal}Controller>`;
             if (!content.includes(controllerCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/presentation/controllers/${name}_controller.dart';\n`;
-                const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
                 const argsBlock = allUsecaseArgs ? `\n      ${allUsecaseArgs},\n    ` : '';
                 registrations += `  getIt.registerFactory<${pascal}Controller>(
     () => ${pascal}Controller(${argsBlock}),
@@ -1741,7 +2098,6 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
             const controllerCheck = `getIt.registerFactory<${pascal}Controller>`;
             if (!content.includes(controllerCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/presentation/controllers/${name}_controller.dart';\n`;
-                const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
                 const argsBlock = allUsecaseArgs ? `\n      ${allUsecaseArgs},\n    ` : '';
                 registrations += `  getIt.registerFactory<${pascal}Controller>(
     () => ${pascal}Controller(${argsBlock}),
@@ -1752,7 +2108,6 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
             const notifierCheck = `getIt.registerFactory<${pascal}Notifier>`;
             if (!content.includes(notifierCheck)) {
                 imports += `import 'package:${packageName}/features/${name}/presentation/provider/${name}_notifier.dart';\n`;
-                const allUsecaseArgs = models.map(m => `get${m.modelNamePascal}UseCase: getIt<Get${m.modelNamePascal}UseCase>(),\n      create${m.modelNamePascal}UseCase: getIt<Create${m.modelNamePascal}UseCase>(),\n      update${m.modelNamePascal}UseCase: getIt<Update${m.modelNamePascal}UseCase>(),\n      delete${m.modelNamePascal}UseCase: getIt<Delete${m.modelNamePascal}UseCase>()`).join(',\n      ');
                 const argsBlock = allUsecaseArgs ? `\n      ${allUsecaseArgs},\n    ` : '';
                 registrations += `  getIt.registerFactory<${pascal}Notifier>(
     () => ${pascal}Notifier(${argsBlock}),
@@ -1762,6 +2117,7 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
     }
     else if (arch.includes('MVC')) {
         for (const m of models) {
+            const hasLocalService = useHive || fs.existsSync(path.join(rootPath, 'lib', 'features', name, 'services', `${m.modelNameSnake}_local_service.dart`));
             const modelImportCheck = `import 'package:${packageName}/features/${name}/models/${m.modelNameSnake}_model.dart';`;
             if (!content.includes(modelImportCheck)) {
                 imports += `${modelImportCheck}\n`;
@@ -1776,6 +2132,22 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
   getIt.registerLazySingleton<${m.modelNamePascal}ApiService>(
     () => ${m.modelNamePascal}ApiServiceImpl(getIt<Dio>()),
   );\n`;
+            }
+            if (hasLocalService) {
+                if (!content.includes('core/services/hive_service.dart') && !imports.includes('core/services/hive_service.dart')) {
+                    imports += `import 'package:${packageName}/core/services/hive_service.dart';\n`;
+                    registrations += `  if (!getIt.isRegistered<HiveService>()) {\n    getIt.registerLazySingleton<HiveService>(() => HiveService());\n  }\n`;
+                }
+                const localImportCheck = `import 'package:${packageName}/features/${name}/services/${m.modelNameSnake}_local_service.dart';`;
+                if (!content.includes(localImportCheck)) {
+                    imports += `${localImportCheck}\n`;
+                }
+                const localCheck = `getIt.registerLazySingleton<${m.modelNamePascal}LocalService>`;
+                if (!content.includes(localCheck)) {
+                    registrations += `  getIt.registerLazySingleton<${m.modelNamePascal}LocalService>(
+    () => ${m.modelNamePascal}LocalServiceImpl(getIt<HiveService>()),
+  );\n`;
+                }
             }
         }
         if (stateMgmt !== 'Riverpod') {
@@ -1793,6 +2165,7 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
     else {
         // MVVM
         for (const m of models) {
+            const hasLocalService = useHive || fs.existsSync(path.join(rootPath, 'lib', 'features', name, 'services', `${m.modelNameSnake}_local_service.dart`));
             const modelImportCheck = `import 'package:${packageName}/features/${name}/models/${m.modelNameSnake}_model.dart';`;
             if (!content.includes(modelImportCheck)) {
                 imports += `${modelImportCheck}\n`;
@@ -1807,6 +2180,22 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
   getIt.registerLazySingleton<${m.modelNamePascal}ApiService>(
     () => ${m.modelNamePascal}ApiServiceImpl(getIt<Dio>()),
   );\n`;
+            }
+            if (hasLocalService) {
+                if (!content.includes('core/services/hive_service.dart') && !imports.includes('core/services/hive_service.dart')) {
+                    imports += `import 'package:${packageName}/core/services/hive_service.dart';\n`;
+                    registrations += `  if (!getIt.isRegistered<HiveService>()) {\n    getIt.registerLazySingleton<HiveService>(() => HiveService());\n  }\n`;
+                }
+                const localImportCheck = `import 'package:${packageName}/features/${name}/services/${m.modelNameSnake}_local_service.dart';`;
+                if (!content.includes(localImportCheck)) {
+                    imports += `${localImportCheck}\n`;
+                }
+                const localCheck = `getIt.registerLazySingleton<${m.modelNamePascal}LocalService>`;
+                if (!content.includes(localCheck)) {
+                    registrations += `  getIt.registerLazySingleton<${m.modelNamePascal}LocalService>(
+    () => ${m.modelNamePascal}LocalServiceImpl(getIt<HiveService>()),
+  );\n`;
+                }
             }
         }
         if (stateMgmt !== 'Riverpod') {
@@ -1833,12 +2222,929 @@ import 'package:${packageName}/features/${name}/domain/usecases/delete_${m.model
     // Append registrations right before tag
     if (registrations.trim() !== '') {
         const tag = '// Features register tag (DO NOT REMOVE)';
-        content = content.replace(tag, `\n  // ${pascal} Feature` + registrations + '  ' + tag);
+        content = content.replace(tag, `\n  // ${pascal} Feature\n` + registrations + '  ' + tag);
     }
     fs.writeFileSync(diPath, content);
 }
 exports.registerDependenciesInLocator = registerDependenciesInLocator;
-function generateCleanArchFiles(targetDir, name, pascal, camel, stateMgmt, models, packageName, skipPageIfExists = false) {
+function renderEntityClass(model) {
+    const entityPropertiesDecl = model.properties.map(p => {
+        const propType = p.type.replace(/Model\b/g, 'Entity');
+        return `  final ${propType} ${p.name};`;
+    }).join('\n');
+    const entityConstructorDecl = model.properties.map(p => {
+        const isNullable = p.type.endsWith('?');
+        return isNullable ? `    this.${p.name},` : `    required this.${p.name},`;
+    }).join('\n');
+    const copyWithParams = model.properties.map(p => {
+        const propType = p.type.replace(/Model\b/g, 'Entity');
+        const cleanType = propType.endsWith('?') ? propType : `${propType}?`;
+        return `    ${cleanType} ${p.name},`;
+    }).join('\n');
+    const copyWithBody = model.properties.map(p => `      ${p.name}: ${p.name} ?? this.${p.name},`).join('\n');
+    const statusProp = model.properties.find(p => /^(status|state)$/i.test(p.name));
+    const boolDoneProp = model.properties.find(p => /^(is_?completed|is_?done|completed|done)$/i.test(p.name));
+    let statusGetter = '';
+    if (statusProp) {
+        statusGetter = `\n  bool get isCompleted => ${statusProp.name}?.toString().toLowerCase() == 'completed';\n`;
+    }
+    else if (boolDoneProp) {
+        statusGetter = `\n  bool get isCompleted => ${boolDoneProp.name} == true;\n`;
+    }
+    else {
+        statusGetter = `\n  bool get isCompleted => false;\n`;
+    }
+    let result = `class ${model.modelNamePascal}Entity {
+${entityPropertiesDecl}
+
+  const ${model.modelNamePascal}Entity({
+${entityConstructorDecl}
+  });
+
+  ${model.modelNamePascal}Entity copyWith({
+${copyWithParams}
+  }) {
+    return ${model.modelNamePascal}Entity(
+${copyWithBody}
+    );
+  }
+${statusGetter}}
+`;
+    if (model.childModels && model.childModels.length > 0) {
+        for (const child of model.childModels) {
+            result += '\n' + renderEntityClass(child);
+        }
+    }
+    return result;
+}
+function renderFreezedCleanArchModelClass(model) {
+    const modelPropertiesDecl = model.properties.map(p => {
+        const camelName = toCamelCase(p.name);
+        const isNullable = p.type.endsWith('?');
+        const reqPrefix = isNullable ? '' : 'required ';
+        if (camelName !== p.name) {
+            return `    @JsonKey(name: '${p.name}') ${reqPrefix}${p.type} ${camelName},`;
+        }
+        return `    ${reqPrefix}${p.type} ${p.name},`;
+    }).join('\n');
+    const modelToEntityMapper = model.properties.map(p => {
+        const camelName = toCamelCase(p.name);
+        if (p.isNestedList) {
+            return `      ${p.name}: ${camelName}?.map((e) => e.toEntity()).toList(),`;
+        }
+        if (p.isNestedModel) {
+            return `      ${p.name}: ${camelName}?.toEntity(),`;
+        }
+        return `      ${p.name}: ${camelName},`;
+    }).join('\n');
+    const modelFromEntityMapper = model.properties.map(p => {
+        const camelName = toCamelCase(p.name);
+        const childName = p.childModelPascal || (p.type.includes('Model') ? p.type.replace(/^List<([a-zA-Z0-9_]+)Model(\?)?>.*$/, '$1').replace(/Model(\?)?$/, '') : undefined);
+        if (p.isNestedList && childName) {
+            return `    ${camelName}: entity.${p.name}?.map((e) => ${childName}Model.fromEntity(e)).toList(),`;
+        }
+        if (p.isNestedModel && childName) {
+            return `    ${camelName}: entity.${p.name} != null ? ${childName}Model.fromEntity(entity.${p.name}!) : null,`;
+        }
+        return `    ${camelName}: entity.${p.name},`;
+    }).join('\n');
+    let result = `@freezed
+abstract class ${model.modelNamePascal}Model with _\$${model.modelNamePascal}Model {
+  @JsonSerializable(explicitToJson: true)
+  const factory ${model.modelNamePascal}Model({
+${modelPropertiesDecl}
+  }) = _${model.modelNamePascal}Model;
+
+  factory ${model.modelNamePascal}Model.fromJson(Map<String, dynamic> json) => _\$${model.modelNamePascal}ModelFromJson(json);
+
+  factory ${model.modelNamePascal}Model.fromEntity(${model.modelNamePascal}Entity entity) => ${model.modelNamePascal}Model(
+${modelFromEntityMapper}
+  );
+
+  const ${model.modelNamePascal}Model._();
+
+  ${model.modelNamePascal}Entity toEntity() => ${model.modelNamePascal}Entity(
+${modelToEntityMapper}
+  );
+}
+
+extension ${model.modelNamePascal}EntityToModel on ${model.modelNamePascal}Entity {
+  ${model.modelNamePascal}Model toModel() => ${model.modelNamePascal}Model.fromEntity(this);
+}
+`;
+    if (model.childModels && model.childModels.length > 0) {
+        for (const child of model.childModels) {
+            result += '\n' + renderFreezedCleanArchModelClass(child);
+        }
+    }
+    return result;
+}
+function renderHiveOfflineCleanArchPage(name, pascal, model, packageName) {
+    const idProp = model.properties.find(p => /^(id|_id|uuid)$/i.test(p.name))
+        || model.properties.find(p => /id$/i.test(p.name))
+        || model.properties[0];
+    const idField = idProp ? idProp.name : 'id';
+    const idType = idProp ? idProp.type.replace('?', '').trim() : 'String';
+    const titleProp = model.properties.find(p => p.name !== idField && /^(task_title|title|name|taskTitle|heading|label)$/i.test(p.name))
+        || model.properties.find(p => p.name !== idField && p.type.includes('String'))
+        || model.properties.find(p => p.name !== idField)
+        || model.properties[0];
+    const descProp = model.properties.find(p => p.name !== idField && p.name !== titleProp?.name && /^(description|desc|details|note|notes|body|summary)$/i.test(p.name));
+    const dateProp = model.properties.find(p => p.name !== idField && /date/i.test(p.name));
+    const priorityProp = model.properties.find(p => p.name !== idField && /priority|level/i.test(p.name));
+    const statusProp = model.properties.find(p => p.name !== idField && /status|state/i.test(p.name));
+    const boolDoneProp = model.properties.find(p => p.name !== idField && /^(is_?completed|is_?done|completed|done)$/i.test(p.name));
+    const titleField = titleProp ? titleProp.name : idField;
+    const descField = descProp ? descProp.name : '';
+    const dateField = dateProp ? dateProp.name : '';
+    const priorityField = priorityProp ? priorityProp.name : '';
+    const statusField = statusProp ? statusProp.name : '';
+    const knownFieldNames = new Set([idField, titleField, descField, dateField, priorityField, statusField].filter(Boolean));
+    const otherProps = model.properties.filter(p => !knownFieldNames.has(p.name) && !p.isNestedList && !p.isNestedModel);
+    return `import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:${packageName}/core/di/injection.dart';
+import '../../domain/entities/${model.modelNameSnake}_entity.dart';
+import '../bloc/${name}_bloc.dart';
+
+class ${pascal}Page extends StatelessWidget {
+  static const route = '/${name}';
+  const ${pascal}Page({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => getIt<${pascal}Bloc>()..add(Load${pascal}ListEvent()),
+      child: const ${pascal}View(),
+    );
+  }
+}
+
+class ${pascal}View extends StatefulWidget {
+  const ${pascal}View({super.key});
+
+  @override
+  State<${pascal}View> createState() => _${pascal}ViewState();
+}
+
+class _${pascal}ViewState extends State<${pascal}View> {
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _showFormDialog(BuildContext context, {${model.modelNamePascal}Entity? existingItem}) {
+    final formKey = GlobalKey<FormState>();
+    final titleController = TextEditingController(text: existingItem?.${titleField}?.toString() ?? '');
+    ${descField ? `final descController = TextEditingController(text: existingItem?.${descField}?.toString() ?? '');` : ''}
+    ${dateField ? `String selectedDate = existingItem?.${dateField}?.toString() ?? '';` : ''}
+    ${priorityField ? `String selectedPriority = existingItem?.${priorityField}?.toString() ?? 'Medium';` : ''}
+    ${statusField ? `String selectedStatus = existingItem?.${statusField}?.toString() ?? 'Pending';` : ''}
+    ${otherProps.map(p => {
+        if (p.type.replace('?', '') === 'bool') {
+            return `bool ${p.name}Value = existingItem?.${p.name} ?? false;`;
+        }
+        else {
+            return `final ${p.name}Controller = TextEditingController(text: existingItem?.${p.name}?.toString() ?? '');`;
+        }
+    }).join('\n    ')}
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (bottomSheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 24,
+                bottom: MediaQuery.of(bottomSheetContext).viewInsets.bottom + 24,
+              ),
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            existingItem == null ? 'Add New ${pascal}' : 'Edit ${pascal}',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.pop(bottomSheetContext),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: titleController,
+                        decoration: const InputDecoration(
+                          labelText: 'Title *',
+                          hintText: 'Enter title...',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.title),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Title is mandatory';
+                          }
+                          return null;
+                        },
+                      ),
+                      ${descField ? `const SizedBox(height: 14),
+                      TextFormField(
+                        controller: descController,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Description (Optional)',
+                          hintText: 'Add description...',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.description_outlined),
+                        ),
+                      ),` : ''}
+                      ${dateField ? `const SizedBox(height: 14),
+                      InkWell(
+                        onTap: () async {
+                          final now = DateTime.now();
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: now,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2035),
+                          );
+                          if (picked != null) {
+                            final formatted =
+                                '\${picked.year.toString().padLeft(4, '0')}-\${picked.month.toString().padLeft(2, '0')}-\${picked.day.toString().padLeft(2, '0')}';
+                            setModalState(() {
+                              selectedDate = formatted;
+                            });
+                          }
+                        },
+                        child: InputDecorator(
+                          decoration: InputDecoration(
+                            labelText: 'Date *',
+                            border: const OutlineInputBorder(),
+                            prefixIcon: const Icon(Icons.calendar_today_outlined),
+                            errorText: selectedDate.isEmpty ? 'Date is mandatory' : null,
+                          ),
+                          child: Text(
+                            selectedDate.isEmpty ? 'Tap to select date' : selectedDate,
+                            style: TextStyle(
+                              color: selectedDate.isEmpty
+                                  ? Theme.of(context).hintColor
+                                  : Theme.of(context).textTheme.bodyMedium?.color,
+                            ),
+                          ),
+                        ),
+                      ),` : ''}
+                      ${(priorityField || statusField) ? `const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          ${priorityField ? `Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: selectedPriority,
+                              decoration: const InputDecoration(
+                                labelText: 'Priority',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.flag_outlined),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 'Low', child: Text('Low')),
+                                DropdownMenuItem(value: 'Medium', child: Text('Medium')),
+                                DropdownMenuItem(value: 'High', child: Text('High')),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setModalState(() => selectedPriority = val);
+                                }
+                              },
+                            ),
+                          ),` : ''}
+                          ${(priorityField && statusField) ? `const SizedBox(width: 12),` : ''}
+                          ${statusField ? `Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: selectedStatus,
+                              decoration: const InputDecoration(
+                                labelText: 'Status',
+                                border: OutlineInputBorder(),
+                                prefixIcon: Icon(Icons.check_circle_outline),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 'Pending', child: Text('Pending')),
+                                DropdownMenuItem(value: 'Completed', child: Text('Completed')),
+                              ],
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setModalState(() => selectedStatus = val);
+                                }
+                              },
+                            ),
+                          ),` : ''}
+                        ],
+                      ),` : ''}
+                      ${otherProps.map(p => {
+        const label = toPascalCase(p.name);
+        if (p.type.replace('?', '') === 'bool') {
+            return `const SizedBox(height: 10),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('${label}'),
+                        value: ${p.name}Value,
+                        onChanged: (val) {
+                          setModalState(() => ${p.name}Value = val);
+                        },
+                      ),`;
+        }
+        else if (p.type.replace('?', '') === 'int' || p.type.replace('?', '') === 'double') {
+            return `const SizedBox(height: 14),
+                      TextFormField(
+                        controller: ${p.name}Controller,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: ${p.type.includes('double')}),
+                        decoration: const InputDecoration(
+                          labelText: '${label}',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),`;
+        }
+        else {
+            return `const SizedBox(height: 14),
+                      TextFormField(
+                        controller: ${p.name}Controller,
+                        decoration: const InputDecoration(
+                          labelText: '${label}',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),`;
+        }
+    }).join('\n                      ')}
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: ElevatedButton.icon(
+                          icon: Icon(existingItem == null ? Icons.add : Icons.save),
+                          label: Text(existingItem == null ? 'Create ${pascal}' : 'Save Changes'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(context).colorScheme.primary,
+                            foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          onPressed: () {
+                            if (!formKey.currentState!.validate()) return;
+                            ${dateField ? `if (selectedDate.isEmpty) { setModalState(() {}); return; }` : ''}
+
+                            final bloc = context.read<${pascal}Bloc>();
+                            if (existingItem == null) {
+                              final newItem = ${model.modelNamePascal}Entity(
+                                ${model.properties.map(p => {
+        if (p.name === idField) {
+            if (idType === 'int')
+                return `${p.name}: DateTime.now().millisecondsSinceEpoch,`;
+            if (idType === 'double')
+                return `${p.name}: DateTime.now().millisecondsSinceEpoch.toDouble(),`;
+            return `${p.name}: DateTime.now().millisecondsSinceEpoch.toString(),`;
+        }
+        if (p.name === titleField)
+            return `${p.name}: titleController.text.trim(),`;
+        if (descField && p.name === descField)
+            return `${p.name}: descController.text.trim(),`;
+        if (dateField && p.name === dateField)
+            return `${p.name}: selectedDate,`;
+        if (priorityField && p.name === priorityField)
+            return `${p.name}: selectedPriority,`;
+        if (statusField && p.name === statusField)
+            return `${p.name}: selectedStatus,`;
+        if (/create/i.test(p.name))
+            return `${p.name}: DateTime.now().toIso8601String(),`;
+        if (p.type.replace('?', '') === 'bool')
+            return `${p.name}: ${p.name}Value,`;
+        if (p.type.replace('?', '') === 'int')
+            return `${p.name}: int.tryParse(${p.name}Controller.text.trim()) ?? 0,`;
+        if (p.type.replace('?', '') === 'double')
+            return `${p.name}: double.tryParse(${p.name}Controller.text.trim()) ?? 0.0,`;
+        if (p.type.replace('?', '') === 'String')
+            return `${p.name}: ${p.name}Controller.text.trim(),`;
+        if (p.type.endsWith('?'))
+            return `${p.name}: null,`;
+        return `${p.name}: '',`;
+    }).join('\n                                ')}
+                              );
+                              bloc.add(Add${pascal}Event(newItem));
+                            } else {
+                              final updated = existingItem.copyWith(
+                                ${titleField}: titleController.text.trim(),
+                                ${descField ? `${descField}: descController.text.trim(),` : ''}
+                                ${dateField ? `${dateField}: selectedDate,` : ''}
+                                ${priorityField ? `${priorityField}: selectedPriority,` : ''}
+                                ${statusField ? `${statusField}: selectedStatus,` : ''}
+                                ${otherProps.map(p => {
+        if (p.type.replace('?', '') === 'bool')
+            return `${p.name}: ${p.name}Value,`;
+        if (p.type.replace('?', '') === 'int')
+            return `${p.name}: int.tryParse(${p.name}Controller.text.trim()) ?? existingItem.${p.name},`;
+        if (p.type.replace('?', '') === 'double')
+            return `${p.name}: double.tryParse(${p.name}Controller.text.trim()) ?? existingItem.${p.name},`;
+        if (p.type.replace('?', '') === 'String')
+            return `${p.name}: ${p.name}Controller.text.trim(),`;
+        return '';
+    }).filter(Boolean).join('\n                                ')}
+                              );
+                              bloc.add(Update${pascal}Event(updated));
+                            }
+
+                            Navigator.pop(bottomSheetContext);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  existingItem == null ? '${pascal} created!' : '${pascal} updated!',
+                                ),
+                                duration: const Duration(seconds: 2),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Color _getPriorityColor(String priority) {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return Colors.red.shade700;
+      case 'medium':
+        return Colors.amber.shade800;
+      case 'low':
+      default:
+        return Colors.green.shade700;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('${pascal} Manager', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+            Row(
+              children: [
+                Icon(Icons.cloud_off, size: 14, color: theme.colorScheme.onSurfaceVariant),
+                const SizedBox(width: 4),
+                Text(
+                  'Hive Local Storage (100% Offline)',
+                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _showFormDialog(context),
+        icon: const Icon(Icons.add),
+        label: const Text('Add ${pascal}'),
+      ),
+      body: BlocConsumer<${pascal}Bloc, ${pascal}State>(
+        listener: (context, state) {
+          if (state is ${pascal}Error) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(state.message), backgroundColor: Colors.red),
+            );
+          }
+        },
+        builder: (context, state) {
+          if (state is ${pascal}Loading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          if (state is ${pascal}Loaded) {
+            return Column(
+              children: [
+                // Search Bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search ${name}...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                                context.read<${pascal}Bloc>().add(Filter${pascal}Event(searchQuery: ''));
+                              },
+                            )
+                          : null,
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    onChanged: (query) {
+                      context.read<${pascal}Bloc>().add(Filter${pascal}Event(searchQuery: query));
+                    },
+                  ),
+                ),
+
+                ${(statusField || priorityField) ? `// Filters Section
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ${statusField ? `Row(
+                        children: [
+                          const Text('Status: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          const SizedBox(width: 6),
+                          Wrap(
+                            spacing: 6,
+                            children: ['All', 'Pending', 'Completed'].map((status) {
+                              final isSelected = state.statusFilter.toLowerCase() == status.toLowerCase();
+                              return ChoiceChip(
+                                label: Text(status),
+                                selected: isSelected,
+                                onSelected: (sel) {
+                                  if (sel) {
+                                    context.read<${pascal}Bloc>().add(Filter${pascal}Event(statusFilter: status));
+                                  }
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),` : ''}
+                      ${priorityField ? `Row(
+                        children: [
+                          const Text('Priority: ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          const SizedBox(width: 6),
+                          Wrap(
+                            spacing: 6,
+                            children: ['All', 'Low', 'Medium', 'High'].map((prio) {
+                              final isSelected = state.priorityFilter.toLowerCase() == prio.toLowerCase();
+                              return ChoiceChip(
+                                label: Text(prio),
+                                selected: isSelected,
+                                onSelected: (sel) {
+                                  if (sel) {
+                                    context.read<${pascal}Bloc>().add(Filter${pascal}Event(priorityFilter: prio));
+                                  }
+                                },
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ),` : ''}
+                    ],
+                  ),
+                ),
+                const Divider(),` : ''}
+
+                // List or Empty State
+                Expanded(
+                  child: state.filteredItems.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.inbox_outlined,
+                                size: 64,
+                                color: theme.colorScheme.outline,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                state.allItems.isEmpty
+                                    ? 'No ${name} yet!'
+                                    : 'No items match current filter',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                state.allItems.isEmpty
+                                    ? 'Tap the + button to create a new offline item.'
+                                    : 'Try resetting the filters or search.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.outline,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          itemCount: state.filteredItems.length,
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            final item = state.filteredItems[index];
+                            final isCompleted = item.isCompleted;
+
+                            return Dismissible(
+                              key: Key(item.${idField}?.toString() ?? UniqueKey().toString()),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                decoration: BoxDecoration(
+                                  color: Colors.red.shade600,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(Icons.delete, color: Colors.white),
+                              ),
+                              confirmDismiss: (_) async {
+                                return await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Delete ${pascal}'),
+                                    content: Text('Are you sure you want to delete this ${name}?'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx, true),
+                                        style: TextButton.styleFrom(foregroundColor: Colors.red),
+                                        child: const Text('Delete'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                              onDismissed: (_) {
+                                context.read<${pascal}Bloc>().add(Delete${pascal}Event(item.${idField}));
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Item deleted'),
+                                    duration: Duration(seconds: 2),
+                                  ),
+                                );
+                              },
+                              child: Card(
+                                elevation: isCompleted ? 0 : 2,
+                                color: isCompleted
+                                    ? theme.colorScheme.surfaceContainerLow
+                                    : theme.colorScheme.surface,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  side: BorderSide(
+                                    color: isCompleted
+                                        ? theme.colorScheme.outlineVariant
+                                        : Colors.transparent,
+                                  ),
+                                ),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: () => _showFormDialog(context, existingItem: item),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        ${(statusField || boolDoneProp) ? `IconButton(
+                                          icon: Icon(
+                                            isCompleted
+                                                ? Icons.check_circle
+                                                : Icons.radio_button_unchecked,
+                                            color: isCompleted
+                                                ? Colors.green.shade600
+                                                : theme.colorScheme.outline,
+                                          ),
+                                          onPressed: () {
+                                            context.read<${pascal}Bloc>().add(Toggle${pascal}StatusEvent(item));
+                                          },
+                                        ),
+                                        const SizedBox(width: 4),` : ''}
+
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item.${titleField}?.toString() ?? '',
+                                                style: theme.textTheme.titleMedium?.copyWith(
+                                                  fontWeight: FontWeight.bold,
+                                                  decoration: isCompleted
+                                                      ? TextDecoration.lineThrough
+                                                      : TextDecoration.none,
+                                                  color: isCompleted
+                                                      ? theme.colorScheme.outline
+                                                      : theme.colorScheme.onSurface,
+                                                ),
+                                              ),
+                                              ${descField ? `if ((item.${descField}?.toString() ?? '').isNotEmpty) ...[
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  item.${descField}!.toString(),
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                                    color: isCompleted
+                                                        ? theme.colorScheme.outline
+                                                        : theme.colorScheme.onSurfaceVariant,
+                                                  ),
+                                                ),
+                                              ],` : ''}
+                                              const SizedBox(height: 8),
+
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 4,
+                                                children: [
+                                                  ${dateField ? `Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                        horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: theme.colorScheme.surfaceContainerHighest,
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(Icons.calendar_today,
+                                                            size: 12,
+                                                            color: theme.colorScheme.onSurfaceVariant),
+                                                        const SizedBox(width: 4),
+                                                        Text(
+                                                          'Date: \${item.${dateField}}',
+                                                          style: theme.textTheme.labelSmall?.copyWith(
+                                                            color: theme.colorScheme.onSurfaceVariant,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),` : ''}
+
+                                                  ${priorityField ? `Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                        horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: _getPriorityColor(item.${priorityField}?.toString() ?? '')
+                                                          .withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                      border: Border.all(
+                                                        color: _getPriorityColor(item.${priorityField}?.toString() ?? ''),
+                                                        width: 1,
+                                                      ),
+                                                    ),
+                                                    child: Text(
+                                                      item.${priorityField}?.toString() ?? '',
+                                                      style: theme.textTheme.labelSmall?.copyWith(
+                                                        color: _getPriorityColor(item.${priorityField}?.toString() ?? ''),
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),` : ''}
+
+                                                  ${statusField ? `Container(
+                                                    padding: const EdgeInsets.symmetric(
+                                                        horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: isCompleted
+                                                          ? Colors.green.withValues(alpha: 0.15)
+                                                          : Colors.blue.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(6),
+                                                    ),
+                                                    child: Text(
+                                                      item.${statusField}?.toString() ?? '',
+                                                      style: theme.textTheme.labelSmall?.copyWith(
+                                                        color: isCompleted
+                                                            ? Colors.green.shade700
+                                                            : Colors.blue.shade700,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ),` : ''}
+                                                   ${otherProps.filter(p => !p.type.includes('bool') && !p.isNestedList && !p.isNestedModel).map(p => `Container(
+                                                     padding: const EdgeInsets.symmetric(
+                                                         horizontal: 8, vertical: 3),
+                                                     decoration: BoxDecoration(
+                                                       color: theme.colorScheme.surfaceContainerHighest,
+                                                       borderRadius: BorderRadius.circular(6),
+                                                     ),
+                                                     child: Text(
+                                                       '${toPascalCase(p.name)}: \${item.${p.name}}',
+                                                       style: theme.textTheme.labelSmall?.copyWith(
+                                                         color: theme.colorScheme.onSurfaceVariant,
+                                                       ),
+                                                     ),
+                                                   ),`).join('\n                                                   ')}
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+
+                                        PopupMenuButton<String>(
+                                          icon: const Icon(Icons.more_vert, size: 20),
+                                          onSelected: (val) {
+                                            if (val == 'edit') {
+                                              _showFormDialog(context, existingItem: item);
+                                            } else if (val == 'toggle') {
+                                              context.read<${pascal}Bloc>().add(Toggle${pascal}StatusEvent(item));
+                                            } else if (val == 'delete') {
+                                              context.read<${pascal}Bloc>().add(Delete${pascal}Event(item.${idField}));
+                                            }
+                                          },
+                                          itemBuilder: (ctx) => [
+                                            PopupMenuItem(
+                                              value: 'edit',
+                                              child: Row(
+                                                children: const [
+                                                  Icon(Icons.edit_outlined, size: 18),
+                                                  SizedBox(width: 8),
+                                                  Text('Edit'),
+                                                ],
+                                              ),
+                                            ),
+                                            ${(statusField || boolDoneProp) ? `PopupMenuItem(
+                                              value: 'toggle',
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    isCompleted
+                                                        ? Icons.replay
+                                                        : Icons.check_circle_outline,
+                                                    size: 18,
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                  Text(isCompleted
+                                                      ? 'Mark as Pending'
+                                                      : 'Mark as Completed'),
+                                                ],
+                                              ),
+                                            ),` : ''}
+                                            const PopupMenuDivider(),
+                                            PopupMenuItem(
+                                              value: 'delete',
+                                              child: Row(
+                                                children: const [
+                                                  Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                                                  SizedBox(width: 8),
+                                                  Text('Delete', style: TextStyle(color: Colors.red)),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            );
+          }
+
+          return const SizedBox();
+        },
+      ),
+    );
+  }
+}
+`;
+}
+function generateCleanArchFiles(targetDir, name, pascal, camel, stateMgmt, models, packageName, skipPageIfExists = false, useHive = false) {
     const featDir = path.join(targetDir, name);
     const dataDir = path.join(featDir, 'data');
     const domainDir = path.join(featDir, 'domain');
@@ -1866,23 +3172,17 @@ function generateCleanArchFiles(targetDir, name, pascal, camel, stateMgmt, model
     // Generate files for each model
     for (const m of models) {
         // 1. Entity
-        const entityPropertiesDecl = m.properties.map(p => `  final ${p.type} ${p.name};`).join('\n');
-        const entityConstructorDecl = m.properties.map(p => `    required this.${p.name},`).join('\n');
-        fs.writeFileSync(path.join(domainDir, 'entities', `${m.modelNameSnake}_entity.dart`), `class ${m.modelNamePascal}Entity {
-${entityPropertiesDecl}
-
-  const ${m.modelNamePascal}Entity({
-${entityConstructorDecl}
-  });
-}
+        fs.writeFileSync(path.join(domainDir, 'entities', `${m.modelNameSnake}_entity.dart`), `${renderEntityClass(m)}
 `);
         // 2. Repository Contract
         fs.writeFileSync(path.join(domainDir, 'repositories', `${m.modelNameSnake}_repository.dart`), `import '../entities/${m.modelNameSnake}_entity.dart';
 
 abstract class ${m.modelNamePascal}Repository {
   Future<${m.modelNamePascal}Entity> get${m.modelNamePascal}Data();
+  Future<List<${m.modelNamePascal}Entity>> get${m.modelNamePascal}List();
   Future<${m.modelNamePascal}Entity> create${m.modelNamePascal}(${m.modelNamePascal}Entity entity);
   Future<${m.modelNamePascal}Entity> update${m.modelNamePascal}(${m.modelNamePascal}Entity entity);
+  Future<${m.modelNamePascal}Entity> patch${m.modelNamePascal}(dynamic id, Map<String, dynamic> data);
   Future<void> delete${m.modelNamePascal}(dynamic id);
 }
 `);
@@ -1900,6 +3200,10 @@ ${lazySingletonAnnot}class Get${m.modelNamePascal}UseCase {
 
   Future<${m.modelNamePascal}Entity> execute() {
     return repository.get${m.modelNamePascal}Data();
+  }
+
+  Future<List<${m.modelNamePascal}Entity>> executeList() {
+    return repository.get${m.modelNamePascal}List();
   }
 }
 `);
@@ -1931,7 +3235,21 @@ ${lazySingletonAnnot}class Update${m.modelNamePascal}UseCase {
   }
 }
 `);
-        // 3d. Delete Usecase
+        // 3d. Patch Usecase
+        fs.writeFileSync(path.join(domainDir, 'usecases', `patch_${m.modelNameSnake}_usecase.dart`), `${injectableImport}import '../entities/${m.modelNameSnake}_entity.dart';
+import '../repositories/${m.modelNameSnake}_repository.dart';
+
+${lazySingletonAnnot}class Patch${m.modelNamePascal}UseCase {
+  final ${m.modelNamePascal}Repository repository;
+
+  Patch${m.modelNamePascal}UseCase(this.repository);
+
+  Future<${m.modelNamePascal}Entity> execute(dynamic id, Map<String, dynamic> data) {
+    return repository.patch${m.modelNamePascal}(id, data);
+  }
+}
+`);
+        // 3e. Delete Usecase
         fs.writeFileSync(path.join(domainDir, 'usecases', `delete_${m.modelNameSnake}_usecase.dart`), `${injectableImport}import '../repositories/${m.modelNameSnake}_repository.dart';
 
 ${lazySingletonAnnot}class Delete${m.modelNamePascal}UseCase {
@@ -1945,48 +3263,26 @@ ${lazySingletonAnnot}class Delete${m.modelNamePascal}UseCase {
 }
 `);
         // 4. Model (Freezed)
-        const modelPropertiesDecl = m.properties.map(p => {
-            const camelName = toCamelCase(p.name);
-            if (camelName !== p.name) {
-                return `    @JsonKey(name: '${p.name}') required ${p.type} ${camelName},`;
-            }
-            return `    required ${p.type} ${p.name},`;
-        }).join('\n');
-        const modelToEntityMapper = m.properties.map(p => {
-            const camelName = toCamelCase(p.name);
-            return `      ${p.name}: ${camelName},`;
-        }).join('\n');
         fs.writeFileSync(path.join(dataDir, 'models', `${m.modelNameSnake}_model.dart`), `import 'package:freezed_annotation/freezed_annotation.dart';
 import '../../domain/entities/${m.modelNameSnake}_entity.dart';
 
 part '${m.modelNameSnake}_model.freezed.dart';
 part '${m.modelNameSnake}_model.g.dart';
 
-@freezed
-abstract class ${m.modelNamePascal}Model with _\$${m.modelNamePascal}Model {
-  const factory ${m.modelNamePascal}Model({
-${modelPropertiesDecl}
-  }) = _${m.modelNamePascal}Model;
-
-  factory ${m.modelNamePascal}Model.fromJson(Map<String, dynamic> json) => _\$${m.modelNamePascal}ModelFromJson(json);
-
-  const ${m.modelNamePascal}Model._();
-
-  ${m.modelNamePascal}Entity toEntity() => ${m.modelNamePascal}Entity(
-${modelToEntityMapper}
-  );
-}
+${renderFreezedCleanArchModelClass(m)}
 `);
         // 5. Data Source
         const dsInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
         const dsInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}RemoteDataSource)\n` : "";
         fs.writeFileSync(path.join(dataDir, 'datasources', `${m.modelNameSnake}_remote_data_source.dart`), `${dsInjectableImport}import 'package:dio/dio.dart';
+import 'package:${packageName}/core/network/dio_extensions.dart';
 import '../models/${m.modelNameSnake}_model.dart';
 
 abstract class ${m.modelNamePascal}RemoteDataSource {
   Future<${m.modelNamePascal}Model> fetch${m.modelNamePascal}Data();
   Future<${m.modelNamePascal}Model> create${m.modelNamePascal}(${m.modelNamePascal}Model model);
   Future<${m.modelNamePascal}Model> update${m.modelNamePascal}(${m.modelNamePascal}Model model);
+  Future<${m.modelNamePascal}Model> patch${m.modelNamePascal}(dynamic id, Map<String, dynamic> data);
   Future<void> delete${m.modelNamePascal}(dynamic id);
 }
 
@@ -1998,7 +3294,7 @@ ${dsInjectableAnnot}class ${m.modelNamePascal}RemoteDataSourceImpl implements ${
   @override
   Future<${m.modelNamePascal}Model> fetch${m.modelNamePascal}Data() async {
     try {
-      final response = await dio.get('/${m.modelNameSnake}');
+      final response = await dio.getRequest('/${m.modelNameSnake}');
       return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       throw Exception("Failed to fetch ${m.modelNameSnake}: \$e");
@@ -2008,7 +3304,7 @@ ${dsInjectableAnnot}class ${m.modelNamePascal}RemoteDataSourceImpl implements ${
   @override
   Future<${m.modelNamePascal}Model> create${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
     try {
-      final response = await dio.post('/${m.modelNameSnake}', data: model.toJson());
+      final response = await dio.postRequest('/${m.modelNameSnake}', data: model.toJson());
       return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       throw Exception("Failed to create ${m.modelNameSnake}: \$e");
@@ -2018,7 +3314,7 @@ ${dsInjectableAnnot}class ${m.modelNamePascal}RemoteDataSourceImpl implements ${
   @override
   Future<${m.modelNamePascal}Model> update${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
     try {
-      final response = await dio.put('/${m.modelNameSnake}', data: model.toJson());
+      final response = await dio.putRequest('/${m.modelNameSnake}', data: model.toJson());
       return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
     } catch (e) {
       throw Exception("Failed to update ${m.modelNameSnake}: \$e");
@@ -2026,56 +3322,309 @@ ${dsInjectableAnnot}class ${m.modelNamePascal}RemoteDataSourceImpl implements ${
   }
 
   @override
+  Future<${m.modelNamePascal}Model> patch${m.modelNamePascal}(dynamic id, Map<String, dynamic> data) async {
+    try {
+      final response = await dio.patchRequest('/${m.modelNameSnake}/\$id', data: data);
+      return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
+    } catch (e) {
+      throw Exception("Failed to patch ${m.modelNameSnake}: \$e");
+    }
+  }
+
+  @override
   Future<void> delete${m.modelNamePascal}(dynamic id) async {
     try {
-      await dio.delete('/${m.modelNameSnake}/\$id');
+      await dio.deleteRequest('/${m.modelNameSnake}/\$id');
     } catch (e) {
       throw Exception("Failed to delete ${m.modelNameSnake}: \$e");
     }
   }
 }
 `);
+        if (useHive) {
+            const localDsInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+            const localDsInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}LocalDataSource)\n` : "";
+            const mIdProp = m.properties.find(p => /^(id|_id|uuid)$/i.test(p.name)) || m.properties.find(p => /id$/i.test(p.name));
+            const localKeyAccessor = (mIdProp && mIdProp.name !== 'id') ? `(model as dynamic).${mIdProp.name}?.toString() ?? ` : '';
+            fs.writeFileSync(path.join(dataDir, 'datasources', `${m.modelNameSnake}_local_data_source.dart`), `${localDsInjectableImport}import 'dart:convert';
+import 'package:${packageName}/core/services/hive_service.dart';
+import '../models/${m.modelNameSnake}_model.dart';
+
+abstract class ${m.modelNamePascal}LocalDataSource {
+  Future<${m.modelNamePascal}Model?> getLast${m.modelNamePascal}();
+  Future<List<${m.modelNamePascal}Model>> getAll();
+  Future<${m.modelNamePascal}Model?> getById(dynamic id);
+  Future<void> cache${m.modelNamePascal}(${m.modelNamePascal}Model model);
+  Future<void> save(${m.modelNamePascal}Model model);
+  Future<void> update(${m.modelNamePascal}Model model);
+  Future<void> delete(dynamic id);
+  Future<void> clear();
+  Future<void> clearCache();
+}
+
+${localDsInjectableAnnot}class ${m.modelNamePascal}LocalDataSourceImpl implements ${m.modelNamePascal}LocalDataSource {
+  final HiveService hiveService;
+  static const String boxName = '${m.modelNameSnake}_box';
+  static const String cacheKey = 'cached_${m.modelNameSnake}';
+
+  ${m.modelNamePascal}LocalDataSourceImpl([HiveService? hiveService])
+      : hiveService = hiveService ?? HiveService();
+
+  @override
+  Future<${m.modelNamePascal}Model?> getLast${m.modelNamePascal}() async {
+    final box = await hiveService.openBox(boxName);
+    final rawData = box.get(cacheKey);
+    if (rawData != null) {
+      final json = jsonDecode(jsonEncode(rawData)) as Map<String, dynamic>;
+      return ${m.modelNamePascal}Model.fromJson(json);
+    }
+    final all = await getAll();
+    if (all.isNotEmpty) return all.first;
+    return null;
+  }
+
+  @override
+  Future<List<${m.modelNamePascal}Model>> getAll() async {
+    final box = await hiveService.openBox(boxName);
+    final items = <${m.modelNamePascal}Model>[];
+    for (final key in box.keys) {
+      if (key == cacheKey) continue;
+      final raw = box.get(key);
+      if (raw != null) {
+        try {
+          final json = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+          items.add(${m.modelNamePascal}Model.fromJson(json));
+        } catch (_) {}
+      }
+    }
+    if (items.isEmpty && box.containsKey(cacheKey)) {
+      final raw = box.get(cacheKey);
+      if (raw != null) {
+        try {
+          final json = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+          items.add(${m.modelNamePascal}Model.fromJson(json));
+        } catch (_) {}
+      }
+    }
+    return items;
+  }
+
+  @override
+  Future<${m.modelNamePascal}Model?> getById(dynamic id) async {
+    final box = await hiveService.openBox(boxName);
+    final raw = box.get(id.toString());
+    if (raw != null) {
+      final json = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+      return ${m.modelNamePascal}Model.fromJson(json);
+    }
+    return null;
+  }
+
+  @override
+  Future<void> save(${m.modelNamePascal}Model model) async {
+    final rawJson = jsonDecode(jsonEncode(model.toJson()));
+    final key = ${localKeyAccessor}(model as dynamic).id?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString();
+    await hiveService.put(key, rawJson, boxName: boxName);
+    await hiveService.put(cacheKey, rawJson, boxName: boxName);
+  }
+
+  @override
+  Future<void> cache${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
+    await save(model);
+  }
+
+  @override
+  Future<void> update(${m.modelNamePascal}Model model) async {
+    await save(model);
+  }
+
+  @override
+  Future<void> delete(dynamic id) async {
+    await hiveService.delete(id.toString(), boxName: boxName);
+  }
+
+  @override
+  Future<void> clearCache() async {
+    await hiveService.delete(cacheKey, boxName: boxName);
+  }
+
+  @override
+  Future<void> clear() async {
+    await hiveService.clear(boxName: boxName);
+  }
+}
+`);
+        }
         // 6. Repository Impl
         const repoInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
         const repoInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}Repository)\n` : "";
-        fs.writeFileSync(path.join(dataDir, 'repositories', `${m.modelNameSnake}_repository_impl.dart`), `${repoInjectableImport}import '../../domain/entities/${m.modelNameSnake}_entity.dart';
-import '../../domain/repositories/${m.modelNameSnake}_repository.dart';
-import '../datasources/${m.modelNameSnake}_remote_data_source.dart';
-import '../models/${m.modelNameSnake}_model.dart';
-
-${repoInjectableAnnot}class ${m.modelNamePascal}RepositoryImpl implements ${m.modelNamePascal}Repository {
-  final ${m.modelNamePascal}RemoteDataSource remoteDataSource;
-
-  ${m.modelNamePascal}RepositoryImpl(this.remoteDataSource);
-
-  @override
+        const repoLocalImport = useHive ? `import '../datasources/${m.modelNameSnake}_local_data_source.dart';\n` : '';
+        const repoFields = useHive
+            ? `  final ${m.modelNamePascal}RemoteDataSource remoteDataSource;\n  final ${m.modelNamePascal}LocalDataSource localDataSource;\n\n  ${m.modelNamePascal}RepositoryImpl(this.remoteDataSource, this.localDataSource);`
+            : `  final ${m.modelNamePascal}RemoteDataSource remoteDataSource;\n\n  ${m.modelNamePascal}RepositoryImpl(this.remoteDataSource);`;
+        const getListMethodBody = useHive
+            ? `  @override
+  Future<List<${m.modelNamePascal}Entity>> get${m.modelNamePascal}List() async {
+    final models = await localDataSource.getAll();
+    if (models.isNotEmpty) {
+      return models.map((m) => m.toEntity()).toList();
+    }
+    try {
+      final remote = await remoteDataSource.fetch${m.modelNamePascal}Data();
+      await localDataSource.save(remote);
+      return [remote.toEntity()];
+    } catch (_) {
+      return [];
+    }
+  }`
+            : `  @override
+  Future<List<${m.modelNamePascal}Entity>> get${m.modelNamePascal}List() async {
+    try {
+      final remote = await remoteDataSource.fetch${m.modelNamePascal}Data();
+      return [remote.toEntity()];
+    } catch (_) {
+      return [];
+    }
+  }`;
+        const getMethodBody = useHive
+            ? `  @override
+  Future<${m.modelNamePascal}Entity> get${m.modelNamePascal}Data() async {
+    try {
+      final model = await remoteDataSource.fetch${m.modelNamePascal}Data();
+      await localDataSource.cache${m.modelNamePascal}(model);
+      return model.toEntity();
+    } catch (_) {
+      final cached = await localDataSource.getLast${m.modelNamePascal}();
+      if (cached != null) {
+        return cached.toEntity();
+      }
+      final all = await localDataSource.getAll();
+      if (all.isNotEmpty) {
+        return all.first.toEntity();
+      }
+      rethrow;
+    }
+  }`
+            : `  @override
   Future<${m.modelNamePascal}Entity> get${m.modelNamePascal}Data() async {
     final model = await remoteDataSource.fetch${m.modelNamePascal}Data();
     return model.toEntity();
-  }
-
-  @override
+  }`;
+        const modelConstructorArgs = m.properties.map(p => {
+            const camel = toCamelCase(p.name);
+            const childName = p.childModelPascal || (p.type.includes('Model') ? p.type.replace(/^List<([a-zA-Z0-9_]+)Model(\?)?>.*$/, '$1').replace(/Model(\?)?$/, '') : undefined);
+            if (p.isNestedList && childName) {
+                return `${camel}: entity.${p.name}?.map((e) => ${childName}Model.fromEntity(e)).toList(),`;
+            }
+            if (p.isNestedModel && childName) {
+                return `${camel}: entity.${p.name} != null ? ${childName}Model.fromEntity(entity.${p.name}!) : null,`;
+            }
+            return `${camel}: entity.${p.name},`;
+        }).join('\n      ');
+        const createMethodBody = useHive
+            ? `  @override
   Future<${m.modelNamePascal}Entity> create${m.modelNamePascal}(${m.modelNamePascal}Entity entity) async {
     final model = ${m.modelNamePascal}Model(
-      ${m.properties.map(p => `${p.name}: entity.${p.name},`).join('\n      ')}
+      ${modelConstructorArgs}
+    );
+    try {
+      final result = await remoteDataSource.create${m.modelNamePascal}(model);
+      await localDataSource.save(result);
+      return result.toEntity();
+    } catch (_) {
+      await localDataSource.save(model);
+      return entity;
+    }
+  }`
+            : `  @override
+  Future<${m.modelNamePascal}Entity> create${m.modelNamePascal}(${m.modelNamePascal}Entity entity) async {
+    final model = ${m.modelNamePascal}Model(
+      ${modelConstructorArgs}
     );
     final result = await remoteDataSource.create${m.modelNamePascal}(model);
     return result.toEntity();
-  }
-
-  @override
+  }`;
+        const updateMethodBody = useHive
+            ? `  @override
   Future<${m.modelNamePascal}Entity> update${m.modelNamePascal}(${m.modelNamePascal}Entity entity) async {
     final model = ${m.modelNamePascal}Model(
-      ${m.properties.map(p => `${p.name}: entity.${p.name},`).join('\n      ')}
+      ${modelConstructorArgs}
+    );
+    try {
+      final result = await remoteDataSource.update${m.modelNamePascal}(model);
+      await localDataSource.update(result);
+      return result.toEntity();
+    } catch (_) {
+      await localDataSource.update(model);
+      return entity;
+    }
+  }`
+            : `  @override
+  Future<${m.modelNamePascal}Entity> update${m.modelNamePascal}(${m.modelNamePascal}Entity entity) async {
+    final model = ${m.modelNamePascal}Model(
+      ${modelConstructorArgs}
     );
     final result = await remoteDataSource.update${m.modelNamePascal}(model);
     return result.toEntity();
-  }
-
-  @override
+  }`;
+        const patchMethodBody = useHive
+            ? `  @override
+  Future<${m.modelNamePascal}Entity> patch${m.modelNamePascal}(dynamic id, Map<String, dynamic> data) async {
+    try {
+      final result = await remoteDataSource.patch${m.modelNamePascal}(id, data);
+      await localDataSource.update(result);
+      return result.toEntity();
+    } catch (_) {
+      final existing = await localDataSource.getById(id);
+      if (existing != null) {
+        final updatedJson = existing.toJson()..addAll(data);
+        final updated = ${m.modelNamePascal}Model.fromJson(updatedJson);
+        await localDataSource.update(updated);
+        return updated.toEntity();
+      }
+      final cached = await localDataSource.getLast${m.modelNamePascal}();
+      if (cached != null) {
+        return cached.toEntity();
+      }
+      rethrow;
+    }
+  }`
+            : `  @override
+  Future<${m.modelNamePascal}Entity> patch${m.modelNamePascal}(dynamic id, Map<String, dynamic> data) async {
+    final result = await remoteDataSource.patch${m.modelNamePascal}(id, data);
+    return result.toEntity();
+  }`;
+        const deleteMethodBody = useHive
+            ? `  @override
+  Future<void> delete${m.modelNamePascal}(dynamic id) async {
+    try {
+      await remoteDataSource.delete${m.modelNamePascal}(id);
+    } catch (_) {}
+    await localDataSource.delete(id);
+  }`
+            : `  @override
   Future<void> delete${m.modelNamePascal}(dynamic id) async {
     await remoteDataSource.delete${m.modelNamePascal}(id);
-  }
+  }`;
+        fs.writeFileSync(path.join(dataDir, 'repositories', `${m.modelNameSnake}_repository_impl.dart`), `${repoInjectableImport}import '../../domain/entities/${m.modelNameSnake}_entity.dart';
+import '../../domain/repositories/${m.modelNameSnake}_repository.dart';
+import '../datasources/${m.modelNameSnake}_remote_data_source.dart';
+${repoLocalImport}import '../models/${m.modelNameSnake}_model.dart';
+
+${repoInjectableAnnot}class ${m.modelNamePascal}RepositoryImpl implements ${m.modelNamePascal}Repository {
+${repoFields}
+
+${getListMethodBody}
+
+${getMethodBody}
+
+${createMethodBody}
+
+${updateMethodBody}
+
+${patchMethodBody}
+
+${deleteMethodBody}
 }
 `);
     }
@@ -2084,26 +3633,111 @@ ${repoInjectableAnnot}class ${m.modelNamePascal}RepositoryImpl implements ${m.mo
         const blocPath = path.join(presDir, 'bloc', `${name}_bloc.dart`);
         const eventPath = path.join(presDir, 'bloc', `${name}_event.dart`);
         const statePath = path.join(presDir, 'bloc', `${name}_state.dart`);
+        let primaryModel = models[0];
+        if (useHive && models.length > 1) {
+            const listProp = models[0].properties.find(p => p.isNestedList && p.childModelPascal);
+            if (listProp) {
+                const child = models.find(m => m.modelNamePascal === listProp.childModelPascal);
+                if (child) {
+                    primaryModel = child;
+                }
+            }
+        }
         if (!skipPageIfExists || !fs.existsSync(blocPath)) {
             // Event
+            const hiveEvents = (useHive && models.length > 0)
+                ? `\nclass Load${pascal}ListEvent extends ${pascal}Event {}\n
+class Add${pascal}Event extends ${pascal}Event {
+  final ${models[0].modelNamePascal}Entity item;
+  Add${pascal}Event(this.item);
+}
+
+class Update${pascal}Event extends ${pascal}Event {
+  final ${models[0].modelNamePascal}Entity item;
+  Update${pascal}Event(this.item);
+}
+
+class Toggle${pascal}StatusEvent extends ${pascal}Event {
+  final ${models[0].modelNamePascal}Entity item;
+  Toggle${pascal}StatusEvent(this.item);
+}
+
+class Delete${pascal}Event extends ${pascal}Event {
+  final dynamic id;
+  Delete${pascal}Event(this.id);
+}
+
+class Filter${pascal}Event extends ${pascal}Event {
+  final String? searchQuery;
+  final String? statusFilter;
+  final String? priorityFilter;
+
+  Filter${pascal}Event({
+    this.searchQuery,
+    this.statusFilter,
+    this.priorityFilter,
+  });
+}\n`
+                : '';
             fs.writeFileSync(eventPath, `part of '${name}_bloc.dart';
 
 abstract class ${pascal}Event {}
 
-class Fetch${pascal}Event extends ${pascal}Event {}
+class Fetch${pascal}Event extends ${pascal}Event {}${hiveEvents}
 `);
             // State
             const stateFields = models.map(m => `  final ${m.modelNamePascal}Entity? ${m.modelNameCamel}Data;`).join('\n');
-            const stateConstructorArgs = models.map(m => `this.${m.modelNameCamel}Data,`).join('\n');
-            const stateLoadedClass = models.length > 0
-                ? `class ${pascal}Loaded extends ${pascal}State {
+            const stateConstructorArgs = models.map(m => `    this.${m.modelNameCamel}Data,`).join('\n');
+            let stateLoadedClass = `class ${pascal}Loaded extends ${pascal}State {}`;
+            if (models.length > 0) {
+                if (useHive) {
+                    const primary = primaryModel;
+                    stateLoadedClass = `class ${pascal}Loaded extends ${pascal}State {
+${stateFields}
+  final List<${primary.modelNamePascal}Entity> allItems;
+  final List<${primary.modelNamePascal}Entity> filteredItems;
+  final String searchQuery;
+  final String statusFilter;
+  final String priorityFilter;
+
+  ${pascal}Loaded({
+${stateConstructorArgs}
+    this.allItems = const [],
+    this.filteredItems = const [],
+    this.searchQuery = '',
+    this.statusFilter = 'All',
+    this.priorityFilter = 'All',
+  });
+
+  ${pascal}Loaded copyWith({
+${models.map(m => `    ${m.modelNamePascal}Entity? ${m.modelNameCamel}Data,`).join('\n')}
+    List<${primary.modelNamePascal}Entity>? allItems,
+    List<${primary.modelNamePascal}Entity>? filteredItems,
+    String? searchQuery,
+    String? statusFilter,
+    String? priorityFilter,
+  }) {
+    return ${pascal}Loaded(
+${models.map(m => `      ${m.modelNameCamel}Data: ${m.modelNameCamel}Data ?? this.${m.modelNameCamel}Data,`).join('\n')}
+      allItems: allItems ?? this.allItems,
+      filteredItems: filteredItems ?? this.filteredItems,
+      searchQuery: searchQuery ?? this.searchQuery,
+      statusFilter: statusFilter ?? this.statusFilter,
+      priorityFilter: priorityFilter ?? this.priorityFilter,
+    );
+  }
+}`;
+                }
+                else {
+                    stateLoadedClass = `class ${pascal}Loaded extends ${pascal}State {
 ${stateFields}
 
   ${pascal}Loaded({
 ${stateConstructorArgs}
   });
-}`
-                : `class ${pascal}Loaded extends ${pascal}State {}`;
+}`;
+                }
+            }
             fs.writeFileSync(statePath, `part of '${name}_bloc.dart';
 
 abstract class ${pascal}State {}
@@ -2121,14 +3755,17 @@ class ${pascal}Error extends ${pascal}State {
 import '../../domain/usecases/get_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/create_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/update_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/patch_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';`).join('\n');
             const blocFields = models.map(m => `  final Get${m.modelNamePascal}UseCase get${m.modelNamePascal}UseCase;
   final Create${m.modelNamePascal}UseCase create${m.modelNamePascal}UseCase;
   final Update${m.modelNamePascal}UseCase update${m.modelNamePascal}UseCase;
+  final Patch${m.modelNamePascal}UseCase patch${m.modelNamePascal}UseCase;
   final Delete${m.modelNamePascal}UseCase delete${m.modelNamePascal}UseCase;`).join('\n');
             const blocConstructorArgs = models.map(m => `    required this.get${m.modelNamePascal}UseCase,
     required this.create${m.modelNamePascal}UseCase,
     required this.update${m.modelNamePascal}UseCase,
+    required this.patch${m.modelNamePascal}UseCase,
     required this.delete${m.modelNamePascal}UseCase,`).join('\n');
             let parallelExecution = '';
             let emitLoadedCall = `emit(${pascal}Loaded());`;
@@ -2149,6 +3786,140 @@ ${loadedConstructorParams}
 ${blocConstructorArgs}
   }) : super(${pascal}Initial())`
                 : `  ${pascal}Bloc() : super(${pascal}Initial())`;
+            let blocHandlers = `    on<Fetch${pascal}Event>((event, emit) async {
+      emit(${pascal}Loading());
+      try {
+        ${parallelExecution}
+
+        ${emitLoadedCall}
+      } catch (e) {
+        emit(${pascal}Error(e.toString()));
+      }
+    });`;
+            if (useHive && models.length > 0) {
+                const primary = primaryModel;
+                blocHandlers += `
+
+    on<Load${pascal}ListEvent>((event, emit) async {
+      emit(${pascal}Loading());
+      try {
+        final list = await get${primary.modelNamePascal}UseCase.executeList().catchError((_) => <${primary.modelNamePascal}Entity>[]);
+        final currentQuery = state is ${pascal}Loaded ? (state as ${pascal}Loaded).searchQuery : '';
+        final currentStatus = state is ${pascal}Loaded ? (state as ${pascal}Loaded).statusFilter : 'All';
+        final currentPriority = state is ${pascal}Loaded ? (state as ${pascal}Loaded).priorityFilter : 'All';
+        emit(${pascal}Loaded(
+          ${primary.modelNameCamel}Data: list.isNotEmpty ? list.first : null,
+          allItems: list,
+          filteredItems: _filterItems(list, currentQuery, currentStatus, currentPriority),
+          searchQuery: currentQuery,
+          statusFilter: currentStatus,
+          priorityFilter: currentPriority,
+        ));
+      } catch (e) {
+        emit(${pascal}Error(e.toString()));
+      }
+    });
+
+    on<Add${pascal}Event>((event, emit) async {
+      try {
+        await create${primary.modelNamePascal}UseCase.execute(event.item);
+        add(Load${pascal}ListEvent());
+      } catch (e) {
+        emit(${pascal}Error(e.toString()));
+      }
+    });
+
+    on<Update${pascal}Event>((event, emit) async {
+      try {
+        await update${primary.modelNamePascal}UseCase.execute(event.item);
+        add(Load${pascal}ListEvent());
+      } catch (e) {
+        emit(${pascal}Error(e.toString()));
+      }
+    });
+
+    ${(() => {
+                    const statusProp = primary.properties.find(p => /^(status|state)$/i.test(p.name));
+                    const boolDoneProp = primary.properties.find(p => /^(is_?completed|is_?done|completed|done)$/i.test(p.name));
+                    let body = "";
+                    if (statusProp) {
+                        body = `final newStatus = event.item.isCompleted ? Pending : Completed;
+        final updated = event.item.copyWith(${statusProp.name}: newStatus);
+        await update${primary.modelNamePascal}UseCase.execute(updated);
+        add(Load${pascal}ListEvent());`;
+                    }
+                    else if (boolDoneProp) {
+                        body = `final updated = event.item.copyWith(${boolDoneProp.name}: !event.item.isCompleted);
+        await update${primary.modelNamePascal}UseCase.execute(updated);
+        add(Load${pascal}ListEvent());`;
+                    }
+                    else {
+                        body = "// No status or completion field defined on model";
+                    }
+                    return `on<Toggle${pascal}StatusEvent>((event, emit) async {
+      try {
+        ${body}
+      } catch (e) {
+        emit(${pascal}Error(e.toString()));
+      }
+    });`;
+                })()}
+
+    on<Delete${pascal}Event>((event, emit) async {
+      try {
+        await delete${primary.modelNamePascal}UseCase.execute(event.id);
+        add(Load${pascal}ListEvent());
+      } catch (e) {
+        emit(${pascal}Error(e.toString()));
+      }
+    });
+
+    on<Filter${pascal}Event>((event, emit) {
+      if (state is ${pascal}Loaded) {
+        final current = state as ${pascal}Loaded;
+        final q = event.searchQuery ?? current.searchQuery;
+        final s = event.statusFilter ?? current.statusFilter;
+        final p = event.priorityFilter ?? current.priorityFilter;
+        emit(current.copyWith(
+          searchQuery: q,
+          statusFilter: s,
+          priorityFilter: p,
+          filteredItems: _filterItems(current.allItems, q, s, p),
+        ));
+      }
+    });`;
+            }
+            const helperFilterMethod = (useHive && models.length > 0)
+                ? `\n  List<${models[0].modelNamePascal}Entity> _filterItems(
+    List<${models[0].modelNamePascal}Entity> items,
+    String query,
+    String status,
+    String priority,
+  ) {
+    return items.where((item) {
+      if (query.isNotEmpty) {
+        final q = query.toLowerCase();
+        final match = item.toString().toLowerCase().contains(q);
+        if (!match) return false;
+      }
+      if (status != 'All') {
+        try {
+          if ((item as dynamic).status?.toString().toLowerCase() != status.toLowerCase()) {
+            return false;
+          }
+        } catch (_) {}
+      }
+      if (priority != 'All') {
+        try {
+          if ((item as dynamic).priority?.toString().toLowerCase() != priority.toLowerCase()) {
+            return false;
+          }
+        } catch (_) {}
+      }
+      return true;
+    }).toList();
+  }\n`
+                : '';
             fs.writeFileSync(blocPath, `import 'package:flutter_bloc/flutter_bloc.dart';
 ${blocInjectableImport}${blocImports}
 
@@ -2159,24 +3930,17 @@ ${blocInjectableAnnot}class ${pascal}Bloc extends Bloc<${pascal}Event, ${pascal}
 ${blocFields}
 
 ${constructorBlock} {
-    on<Fetch${pascal}Event>((event, emit) async {
-      emit(${pascal}Loading());
-      try {
-        ${parallelExecution}
-
-        ${emitLoadedCall}
-      } catch (e) {
-        emit(${pascal}Error(e.toString()));
-      }
-    });
+${blocHandlers}
   }
-}
+${helperFilterMethod}}
 `);
         }
         // Page (with static route definition)
         const pagePath = path.join(presDir, 'pages', `${name}_page.dart`);
         if (!skipPageIfExists || !fs.existsSync(pagePath) || fs.readFileSync(pagePath, 'utf8').trim() === '') {
-            fs.writeFileSync(pagePath, `import 'package:flutter/material.dart';
+            const pageContent = (useHive && models.length > 0)
+                ? renderHiveOfflineCleanArchPage(name, pascal, primaryModel, packageName)
+                : `import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:${packageName}/core/di/injection.dart';
 import '../bloc/${name}_bloc.dart';
@@ -2207,7 +3971,8 @@ class ${pascal}Page extends StatelessWidget {
     );
   }
 }
-`);
+`;
+            fs.writeFileSync(pagePath, pageContent);
         }
     }
     else if (stateMgmt === 'Riverpod') {
@@ -2275,14 +4040,17 @@ class ${pascal}Page extends ConsumerWidget {
             const controllerFields = models.map(m => `  final Get${m.modelNamePascal}UseCase get${m.modelNamePascal}UseCase;
   final Create${m.modelNamePascal}UseCase create${m.modelNamePascal}UseCase;
   final Update${m.modelNamePascal}UseCase update${m.modelNamePascal}UseCase;
+  final Patch${m.modelNamePascal}UseCase patch${m.modelNamePascal}UseCase;
   final Delete${m.modelNamePascal}UseCase delete${m.modelNamePascal}UseCase;`).join('\n');
             const controllerConstructorArgs = models.map(m => `    required this.get${m.modelNamePascal}UseCase,
     required this.create${m.modelNamePascal}UseCase,
     required this.update${m.modelNamePascal}UseCase,
+    required this.patch${m.modelNamePascal}UseCase,
     required this.delete${m.modelNamePascal}UseCase,`).join('\n');
             const controllerImports = models.map(m => `import '../../domain/usecases/get_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/create_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/update_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/patch_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';
 import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
             const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
@@ -2379,14 +4147,17 @@ class ${pascal}Page extends StatelessWidget {
             const controllerFields = models.map(m => `  final Get${m.modelNamePascal}UseCase get${m.modelNamePascal}UseCase;
   final Create${m.modelNamePascal}UseCase create${m.modelNamePascal}UseCase;
   final Update${m.modelNamePascal}UseCase update${m.modelNamePascal}UseCase;
+  final Patch${m.modelNamePascal}UseCase patch${m.modelNamePascal}UseCase;
   final Delete${m.modelNamePascal}UseCase delete${m.modelNamePascal}UseCase;`).join('\n');
             const controllerConstructorArgs = models.map(m => `    required this.get${m.modelNamePascal}UseCase,
     required this.create${m.modelNamePascal}UseCase,
     required this.update${m.modelNamePascal}UseCase,
+    required this.patch${m.modelNamePascal}UseCase,
     required this.delete${m.modelNamePascal}UseCase,`).join('\n');
             const controllerImports = models.map(m => `import '../../domain/usecases/get_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/create_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/update_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/patch_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';
 import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
             const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
@@ -2477,14 +4248,17 @@ class _${pascal}PageState extends State<${pascal}Page> {
             const notifierFields = models.map(m => `  final Get${m.modelNamePascal}UseCase get${m.modelNamePascal}UseCase;
   final Create${m.modelNamePascal}UseCase create${m.modelNamePascal}UseCase;
   final Update${m.modelNamePascal}UseCase update${m.modelNamePascal}UseCase;
+  final Patch${m.modelNamePascal}UseCase patch${m.modelNamePascal}UseCase;
   final Delete${m.modelNamePascal}UseCase delete${m.modelNamePascal}UseCase;`).join('\n');
             const notifierConstructorArgs = models.map(m => `    required this.get${m.modelNamePascal}UseCase,
     required this.create${m.modelNamePascal}UseCase,
     required this.update${m.modelNamePascal}UseCase,
+    required this.patch${m.modelNamePascal}UseCase,
     required this.delete${m.modelNamePascal}UseCase,`).join('\n');
             const notifierImports = models.map(m => `import '../../domain/usecases/get_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/create_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/update_${m.modelNameSnake}_usecase.dart';
+import '../../domain/usecases/patch_${m.modelNameSnake}_usecase.dart';
 import '../../domain/usecases/delete_${m.modelNameSnake}_usecase.dart';
 import '../../domain/entities/${m.modelNameSnake}_entity.dart';`).join('\n');
             const useInjectable = isInjectableEnabled(findProjectRoot(targetDir));
@@ -2578,7 +4352,32 @@ class _${pascal}PageState extends State<${pascal}Page> {
     }
 }
 exports.generateCleanArchFiles = generateCleanArchFiles;
-function generateMVCFiles(targetDir, name, pascal, camel, stateMgmt, models, packageName, skipPageIfExists = false) {
+function renderMvcMvvmModelClass(model) {
+    const modelPropertiesDecl = model.properties.map(p => {
+        const camelName = toCamelCase(p.name);
+        if (camelName !== p.name) {
+            return `    @JsonKey(name: '${p.name}') required ${p.type} ${camelName},`;
+        }
+        return `    required ${p.type} ${p.name},`;
+    }).join('\n');
+    let result = `@freezed
+abstract class ${model.modelNamePascal}Model with _\$${model.modelNamePascal}Model {
+  @JsonSerializable(explicitToJson: true)
+  const factory ${model.modelNamePascal}Model({
+${modelPropertiesDecl}
+  }) = _${model.modelNamePascal}Model;
+
+  factory ${model.modelNamePascal}Model.fromJson(Map<String, dynamic> json) => _\$${model.modelNamePascal}ModelFromJson(json);
+}
+`;
+    if (model.childModels && model.childModels.length > 0) {
+        for (const child of model.childModels) {
+            result += '\n' + renderMvcMvvmModelClass(child);
+        }
+    }
+    return result;
+}
+function generateMVCFiles(targetDir, name, pascal, camel, stateMgmt, models, packageName, skipPageIfExists = false, useHive = false) {
     const featDir = path.join(targetDir, name);
     const modelsDir = path.join(featDir, 'models');
     const ctrlDir = path.join(featDir, 'controllers');
@@ -2588,26 +4387,12 @@ function generateMVCFiles(targetDir, name, pascal, camel, stateMgmt, models, pac
     fs.mkdirSync(viewsDir, { recursive: true });
     // Generate models
     for (const m of models) {
-        const modelPropertiesDecl = m.properties.map(p => {
-            const camelName = toCamelCase(p.name);
-            if (camelName !== p.name) {
-                return `    @JsonKey(name: '${p.name}') required ${p.type} ${camelName},`;
-            }
-            return `    required ${p.type} ${p.name},`;
-        }).join('\n');
         fs.writeFileSync(path.join(modelsDir, `${m.modelNameSnake}_model.dart`), `import 'package:freezed_annotation/freezed_annotation.dart';
 
 part '${m.modelNameSnake}_model.freezed.dart';
 part '${m.modelNameSnake}_model.g.dart';
 
-@freezed
-abstract class ${m.modelNamePascal}Model with _\$${m.modelNamePascal}Model {
-  const factory ${m.modelNamePascal}Model({
-${modelPropertiesDecl}
-  }) = _${m.modelNamePascal}Model;
-
-  factory ${m.modelNamePascal}Model.fromJson(Map<String, dynamic> json) => _\$${m.modelNamePascal}ModelFromJson(json);
-}
+${renderMvcMvvmModelClass(m)}
 `);
     }
     // Create services directory for MVC API Calls
@@ -2620,10 +4405,15 @@ ${modelPropertiesDecl}
             const serviceInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
             const serviceInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}ApiService)\n` : "";
             fs.writeFileSync(servicePath, `${serviceInjectableImport}import 'package:dio/dio.dart';
+import 'package:${packageName}/core/network/dio_extensions.dart';
 import '../models/${m.modelNameSnake}_model.dart';
 
 abstract class ${m.modelNamePascal}ApiService {
   Future<${m.modelNamePascal}Model?> get${m.modelNamePascal}();
+  Future<${m.modelNamePascal}Model?> create${m.modelNamePascal}(${m.modelNamePascal}Model model);
+  Future<${m.modelNamePascal}Model?> update${m.modelNamePascal}(${m.modelNamePascal}Model model);
+  Future<${m.modelNamePascal}Model?> patch${m.modelNamePascal}(dynamic id, Map<String, dynamic> data);
+  Future<bool> delete${m.modelNamePascal}(dynamic id);
 }
 
 ${serviceInjectableAnnot}class ${m.modelNamePascal}ApiServiceImpl implements ${m.modelNamePascal}ApiService {
@@ -2631,18 +4421,188 @@ ${serviceInjectableAnnot}class ${m.modelNamePascal}ApiServiceImpl implements ${m
 
   ${m.modelNamePascal}ApiServiceImpl(this.dio);
 
+  ${m.modelNamePascal}Model? _parseResponse(dynamic data) {
+    if (data == null) return null;
+    if (data is Map<String, dynamic>) {
+      final inner = data['data'] ?? data['result'] ?? data;
+      if (inner is Map<String, dynamic>) {
+        return ${m.modelNamePascal}Model.fromJson(inner);
+      }
+      return ${m.modelNamePascal}Model.fromJson(data);
+    }
+    return null;
+  }
+
   @override
   Future<${m.modelNamePascal}Model?> get${m.modelNamePascal}() async {
     try {
-      final response = await dio.get('/${m.modelNameSnake}');
-      if (response.data != null) {
-        return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
-      }
-    } catch (_) {}
-    return null;
+      final response = await dio.getRequest('/${m.modelNameSnake}');
+      return _parseResponse(response.data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<${m.modelNamePascal}Model?> create${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
+    try {
+      final response = await dio.postRequest('/${m.modelNameSnake}', data: model.toJson());
+      return _parseResponse(response.data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<${m.modelNamePascal}Model?> update${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
+    try {
+      final response = await dio.putRequest('/${m.modelNameSnake}', data: model.toJson());
+      return _parseResponse(response.data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<${m.modelNamePascal}Model?> patch${m.modelNamePascal}(dynamic id, Map<String, dynamic> data) async {
+    try {
+      final response = await dio.patchRequest('/${m.modelNameSnake}/\$id', data: data);
+      return _parseResponse(response.data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> delete${m.modelNamePascal}(dynamic id) async {
+    try {
+      final response = await dio.deleteRequest('/${m.modelNameSnake}/\$id');
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (_) {
+      return false;
+    }
   }
 }
 `);
+        }
+    }
+    if (useHive) {
+        for (const m of models) {
+            const localServicePath = path.join(servicesDir, `${m.modelNameSnake}_local_service.dart`);
+            if (!fs.existsSync(localServicePath)) {
+                const serviceInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+                const serviceInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}LocalService)\n` : "";
+                const mIdProp = m.properties.find(p => /^(id|_id|uuid)$/i.test(p.name)) || m.properties.find(p => /id$/i.test(p.name));
+                const localKeyAccessor = (mIdProp && mIdProp.name !== 'id') ? `(model as dynamic).${mIdProp.name}?.toString() ?? ` : '';
+                fs.writeFileSync(localServicePath, `${serviceInjectableImport}import 'dart:convert';
+import 'package:${packageName}/core/services/hive_service.dart';
+import '../models/${m.modelNameSnake}_model.dart';
+
+abstract class ${m.modelNamePascal}LocalService {
+  Future<${m.modelNamePascal}Model?> getLast${m.modelNamePascal}();
+  Future<List<${m.modelNamePascal}Model>> getAll();
+  Future<${m.modelNamePascal}Model?> getById(dynamic id);
+  Future<void> cache${m.modelNamePascal}(${m.modelNamePascal}Model model);
+  Future<void> save(${m.modelNamePascal}Model model);
+  Future<void> update(${m.modelNamePascal}Model model);
+  Future<void> delete(dynamic id);
+  Future<void> clear();
+  Future<void> clearCache();
+}
+
+${serviceInjectableAnnot}class ${m.modelNamePascal}LocalServiceImpl implements ${m.modelNamePascal}LocalService {
+  final HiveService hiveService;
+  static const String boxName = '${m.modelNameSnake}_box';
+  static const String cacheKey = 'cached_${m.modelNameSnake}';
+
+  ${m.modelNamePascal}LocalServiceImpl([HiveService? hiveService])
+      : hiveService = hiveService ?? HiveService();
+
+  @override
+  Future<${m.modelNamePascal}Model?> getLast${m.modelNamePascal}() async {
+    final box = await hiveService.openBox(boxName);
+    final rawData = box.get(cacheKey);
+    if (rawData != null) {
+      final json = jsonDecode(jsonEncode(rawData)) as Map<String, dynamic>;
+      return ${m.modelNamePascal}Model.fromJson(json);
+    }
+    final all = await getAll();
+    if (all.isNotEmpty) return all.first;
+    return null;
+  }
+
+  @override
+  Future<List<${m.modelNamePascal}Model>> getAll() async {
+    final box = await hiveService.openBox(boxName);
+    final items = <${m.modelNamePascal}Model>[];
+    for (final key in box.keys) {
+      if (key == cacheKey) continue;
+      final raw = box.get(key);
+      if (raw != null) {
+        try {
+          final json = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+          items.add(${m.modelNamePascal}Model.fromJson(json));
+        } catch (_) {}
+      }
+    }
+    if (items.isEmpty && box.containsKey(cacheKey)) {
+      final raw = box.get(cacheKey);
+      if (raw != null) {
+        try {
+          final json = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+          items.add(${m.modelNamePascal}Model.fromJson(json));
+        } catch (_) {}
+      }
+    }
+    return items;
+  }
+
+  @override
+  Future<${m.modelNamePascal}Model?> getById(dynamic id) async {
+    final box = await hiveService.openBox(boxName);
+    final raw = box.get(id.toString());
+    if (raw != null) {
+      final json = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+      return ${m.modelNamePascal}Model.fromJson(json);
+    }
+    return null;
+  }
+
+  @override
+  Future<void> save(${m.modelNamePascal}Model model) async {
+    final rawJson = jsonDecode(jsonEncode(model.toJson()));
+    final key = ${localKeyAccessor}(model as dynamic).id?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString();
+    await hiveService.put(key, rawJson, boxName: boxName);
+    await hiveService.put(cacheKey, rawJson, boxName: boxName);
+  }
+
+  @override
+  Future<void> cache${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
+    await save(model);
+  }
+
+  @override
+  Future<void> update(${m.modelNamePascal}Model model) async {
+    await save(model);
+  }
+
+  @override
+  Future<void> delete(dynamic id) async {
+    await hiveService.delete(id.toString(), boxName: boxName);
+  }
+
+  @override
+  Future<void> clearCache() async {
+    await hiveService.delete(cacheKey, boxName: boxName);
+  }
+
+  @override
+  Future<void> clear() async {
+    await hiveService.clear(boxName: boxName);
+  }
+}
+`);
+            }
         }
     }
     // Controller & View depending on State Management
@@ -3073,7 +5033,7 @@ class _${pascal}ViewState extends State<${pascal}View> {
     }
 }
 exports.generateMVCFiles = generateMVCFiles;
-function generateMVVMFiles(targetDir, name, pascal, camel, stateMgmt, models, packageName, skipPageIfExists = false) {
+function generateMVVMFiles(targetDir, name, pascal, camel, stateMgmt, models, packageName, skipPageIfExists = false, useHive = false) {
     const featDir = path.join(targetDir, name);
     const modelsDir = path.join(featDir, 'models');
     const vmDir = path.join(featDir, 'viewmodels');
@@ -3083,26 +5043,12 @@ function generateMVVMFiles(targetDir, name, pascal, camel, stateMgmt, models, pa
     fs.mkdirSync(viewsDir, { recursive: true });
     // Generate models
     for (const m of models) {
-        const modelPropertiesDecl = m.properties.map(p => {
-            const camelName = toCamelCase(p.name);
-            if (camelName !== p.name) {
-                return `    @JsonKey(name: '${p.name}') required ${p.type} ${camelName},`;
-            }
-            return `    required ${p.type} ${p.name},`;
-        }).join('\n');
         fs.writeFileSync(path.join(modelsDir, `${m.modelNameSnake}_model.dart`), `import 'package:freezed_annotation/freezed_annotation.dart';
 
 part '${m.modelNameSnake}_model.freezed.dart';
 part '${m.modelNameSnake}_model.g.dart';
 
-@freezed
-abstract class ${m.modelNamePascal}Model with _\$${m.modelNamePascal}Model {
-  const factory ${m.modelNamePascal}Model({
-${modelPropertiesDecl}
-  }) = _${m.modelNamePascal}Model;
-
-  factory ${m.modelNamePascal}Model.fromJson(Map<String, dynamic> json) => _\$${m.modelNamePascal}ModelFromJson(json);
-}
+${renderMvcMvvmModelClass(m)}
 `);
     }
     // Create services directory for MVVM API Calls
@@ -3116,10 +5062,15 @@ ${modelPropertiesDecl}
             const serviceInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
             const serviceInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}ApiService)\n` : "";
             fs.writeFileSync(servicePath, `${serviceInjectableImport}import 'package:dio/dio.dart';
+import 'package:${packageName}/core/network/dio_extensions.dart';
 import '../models/${m.modelNameSnake}_model.dart';
 
 abstract class ${m.modelNamePascal}ApiService {
   Future<${m.modelNamePascal}Model?> get${m.modelNamePascal}();
+  Future<${m.modelNamePascal}Model?> create${m.modelNamePascal}(${m.modelNamePascal}Model model);
+  Future<${m.modelNamePascal}Model?> update${m.modelNamePascal}(${m.modelNamePascal}Model model);
+  Future<${m.modelNamePascal}Model?> patch${m.modelNamePascal}(dynamic id, Map<String, dynamic> data);
+  Future<bool> delete${m.modelNamePascal}(dynamic id);
 }
 
 ${serviceInjectableAnnot}class ${m.modelNamePascal}ApiServiceImpl implements ${m.modelNamePascal}ApiService {
@@ -3127,18 +5078,188 @@ ${serviceInjectableAnnot}class ${m.modelNamePascal}ApiServiceImpl implements ${m
 
   ${m.modelNamePascal}ApiServiceImpl(this.dio);
 
+  ${m.modelNamePascal}Model? _parseResponse(dynamic data) {
+    if (data == null) return null;
+    if (data is Map<String, dynamic>) {
+      final inner = data['data'] ?? data['result'] ?? data;
+      if (inner is Map<String, dynamic>) {
+        return ${m.modelNamePascal}Model.fromJson(inner);
+      }
+      return ${m.modelNamePascal}Model.fromJson(data);
+    }
+    return null;
+  }
+
   @override
   Future<${m.modelNamePascal}Model?> get${m.modelNamePascal}() async {
     try {
-      final response = await dio.get('/${m.modelNameSnake}');
-      if (response.data != null) {
-        return ${m.modelNamePascal}Model.fromJson(response.data as Map<String, dynamic>);
-      }
-    } catch (_) {}
-    return null;
+      final response = await dio.getRequest('/${m.modelNameSnake}');
+      return _parseResponse(response.data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<${m.modelNamePascal}Model?> create${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
+    try {
+      final response = await dio.postRequest('/${m.modelNameSnake}', data: model.toJson());
+      return _parseResponse(response.data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<${m.modelNamePascal}Model?> update${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
+    try {
+      final response = await dio.putRequest('/${m.modelNameSnake}', data: model.toJson());
+      return _parseResponse(response.data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<${m.modelNamePascal}Model?> patch${m.modelNamePascal}(dynamic id, Map<String, dynamic> data) async {
+    try {
+      final response = await dio.patchRequest('/${m.modelNameSnake}/\$id', data: data);
+      return _parseResponse(response.data);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> delete${m.modelNamePascal}(dynamic id) async {
+    try {
+      final response = await dio.deleteRequest('/${m.modelNameSnake}/\$id');
+      return response.statusCode == 200 || response.statusCode == 204;
+    } catch (_) {
+      return false;
+    }
   }
 }
 `);
+        }
+    }
+    if (useHive) {
+        for (const m of models) {
+            const localServicePath = path.join(servicesDir, `${m.modelNameSnake}_local_service.dart`);
+            if (!fs.existsSync(localServicePath)) {
+                const serviceInjectableImport = useInjectable ? "import 'package:injectable/injectable.dart';\n" : "";
+                const serviceInjectableAnnot = useInjectable ? `@LazySingleton(as: ${m.modelNamePascal}LocalService)\n` : "";
+                const mIdProp = m.properties.find(p => /^(id|_id|uuid)$/i.test(p.name)) || m.properties.find(p => /id$/i.test(p.name));
+                const localKeyAccessor = (mIdProp && mIdProp.name !== 'id') ? `(model as dynamic).${mIdProp.name}?.toString() ?? ` : '';
+                fs.writeFileSync(localServicePath, `${serviceInjectableImport}import 'dart:convert';
+import 'package:${packageName}/core/services/hive_service.dart';
+import '../models/${m.modelNameSnake}_model.dart';
+
+abstract class ${m.modelNamePascal}LocalService {
+  Future<${m.modelNamePascal}Model?> getLast${m.modelNamePascal}();
+  Future<List<${m.modelNamePascal}Model>> getAll();
+  Future<${m.modelNamePascal}Model?> getById(dynamic id);
+  Future<void> cache${m.modelNamePascal}(${m.modelNamePascal}Model model);
+  Future<void> save(${m.modelNamePascal}Model model);
+  Future<void> update(${m.modelNamePascal}Model model);
+  Future<void> delete(dynamic id);
+  Future<void> clear();
+  Future<void> clearCache();
+}
+
+${serviceInjectableAnnot}class ${m.modelNamePascal}LocalServiceImpl implements ${m.modelNamePascal}LocalService {
+  final HiveService hiveService;
+  static const String boxName = '${m.modelNameSnake}_box';
+  static const String cacheKey = 'cached_${m.modelNameSnake}';
+
+  ${m.modelNamePascal}LocalServiceImpl([HiveService? hiveService])
+      : hiveService = hiveService ?? HiveService();
+
+  @override
+  Future<${m.modelNamePascal}Model?> getLast${m.modelNamePascal}() async {
+    final box = await hiveService.openBox(boxName);
+    final rawData = box.get(cacheKey);
+    if (rawData != null) {
+      final json = jsonDecode(jsonEncode(rawData)) as Map<String, dynamic>;
+      return ${m.modelNamePascal}Model.fromJson(json);
+    }
+    final all = await getAll();
+    if (all.isNotEmpty) return all.first;
+    return null;
+  }
+
+  @override
+  Future<List<${m.modelNamePascal}Model>> getAll() async {
+    final box = await hiveService.openBox(boxName);
+    final items = <${m.modelNamePascal}Model>[];
+    for (final key in box.keys) {
+      if (key == cacheKey) continue;
+      final raw = box.get(key);
+      if (raw != null) {
+        try {
+          final json = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+          items.add(${m.modelNamePascal}Model.fromJson(json));
+        } catch (_) {}
+      }
+    }
+    if (items.isEmpty && box.containsKey(cacheKey)) {
+      final raw = box.get(cacheKey);
+      if (raw != null) {
+        try {
+          final json = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+          items.add(${m.modelNamePascal}Model.fromJson(json));
+        } catch (_) {}
+      }
+    }
+    return items;
+  }
+
+  @override
+  Future<${m.modelNamePascal}Model?> getById(dynamic id) async {
+    final box = await hiveService.openBox(boxName);
+    final raw = box.get(id.toString());
+    if (raw != null) {
+      final json = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+      return ${m.modelNamePascal}Model.fromJson(json);
+    }
+    return null;
+  }
+
+  @override
+  Future<void> save(${m.modelNamePascal}Model model) async {
+    final rawJson = jsonDecode(jsonEncode(model.toJson()));
+    final key = ${localKeyAccessor}(model as dynamic).id?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString();
+    await hiveService.put(key, rawJson, boxName: boxName);
+    await hiveService.put(cacheKey, rawJson, boxName: boxName);
+  }
+
+  @override
+  Future<void> cache${m.modelNamePascal}(${m.modelNamePascal}Model model) async {
+    await save(model);
+  }
+
+  @override
+  Future<void> update(${m.modelNamePascal}Model model) async {
+    await save(model);
+  }
+
+  @override
+  Future<void> delete(dynamic id) async {
+    await hiveService.delete(id.toString(), boxName: boxName);
+  }
+
+  @override
+  Future<void> clearCache() async {
+    await hiveService.delete(cacheKey, boxName: boxName);
+  }
+
+  @override
+  Future<void> clear() async {
+    await hiveService.clear(boxName: boxName);
+  }
+}
+`);
+            }
         }
     }
     // ViewModel & View depending on State Management
@@ -3816,6 +5937,7 @@ ${ucInjectableAnnot}class ${actionPascal}UseCase {
         }
     }
 }
+exports.addCleanArchApiAction = addCleanArchApiAction;
 async function addMvvmApiAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, httpMethod, endpoint, stateMgmt, packageName, responseModel = null, isMvc = false) {
     const featDir = path.join(rootPath, 'lib', 'features', featureName);
     const vmDir = path.join(featDir, isMvc ? 'controllers' : 'viewmodels');
@@ -4018,6 +6140,7 @@ ${serviceInjectableAnnot}class ${actionPascal}ResponseModelApiServiceImpl implem
     }
     await runBuildRunner(rootPath);
 }
+exports.addMvvmApiAction = addMvvmApiAction;
 async function addLocalStateAction(rootPath, featureName, featurePascal, actionCamel, actionPascal, stateMgmt, arch, packageName) {
     const featDir = path.join(rootPath, 'lib', 'features', featureName);
     const presDir = path.join(featDir, 'presentation');
@@ -4209,6 +6332,7 @@ async function addLocalStateAction(rootPath, featureName, featurePascal, actionC
         }
     }
 }
+exports.addLocalStateAction = addLocalStateAction;
 function configurePubspecForEnvAndL10n(rootPath) {
     const pubspecPath = path.join(rootPath, 'pubspec.yaml');
     if (!fs.existsSync(pubspecPath))
@@ -4762,6 +6886,125 @@ class EncryptionService {
     }
 }
 exports.generateSecurityFiles = generateSecurityFiles;
+function generateHiveFiles(rootPath) {
+    const serviceDir = path.join(rootPath, 'lib', 'core', 'services');
+    fs.mkdirSync(serviceDir, { recursive: true });
+    const pubspecPath = path.join(rootPath, 'pubspec.yaml');
+    let hasInjectable = false;
+    if (fs.existsSync(pubspecPath)) {
+        const pubspecContent = fs.readFileSync(pubspecPath, 'utf8');
+        hasInjectable = pubspecContent.includes('injectable:');
+    }
+    const hiveServicePath = path.join(serviceDir, 'hive_service.dart');
+    if (!fs.existsSync(hiveServicePath)) {
+        const injectableImport = hasInjectable ? "import 'package:injectable/injectable.dart';\n\n@lazySingleton\n" : "";
+        const hiveServiceTemplate = `import 'package:flutter/foundation.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+${injectableImport}class HiveService {
+  static final HiveService _instance = HiveService._internal();
+  factory HiveService() => _instance;
+  HiveService._internal();
+
+  static const String defaultBoxName = 'app_preferences';
+
+  Box? _defaultBox;
+
+  Box get defaultBox {
+    if (_defaultBox == null || !_defaultBox!.isOpen) {
+      if (Hive.isBoxOpen(defaultBoxName)) {
+        _defaultBox = Hive.box(defaultBoxName);
+        return _defaultBox!;
+      }
+      throw StateError(
+        'HiveService default box is not initialized. Call HiveService().init() first.',
+      );
+    }
+    return _defaultBox!;
+  }
+
+  Future<void> init({String boxName = defaultBoxName}) async {
+    await Hive.initFlutter();
+    _defaultBox = await openBox(boxName);
+  }
+
+  Future<Box<T>> openBox<T>(String boxName) async {
+    if (Hive.isBoxOpen(boxName)) {
+      return Hive.box<T>(boxName);
+    }
+    return await Hive.openBox<T>(boxName);
+  }
+
+  Box<T> getBox<T>([String? boxName]) {
+    final name = boxName ?? defaultBoxName;
+    if (!Hive.isBoxOpen(name)) {
+      throw StateError('Box "\$name" is not open. Call openBox("\$name") first.');
+    }
+    return Hive.box<T>(name);
+  }
+
+  bool isBoxOpen(String boxName) => Hive.isBoxOpen(boxName);
+
+  void registerAdapter<T>(TypeAdapter<T> adapter) {
+    if (!Hive.isAdapterRegistered(adapter.typeId)) {
+      Hive.registerAdapter<T>(adapter);
+    }
+  }
+
+  Future<void> put<T>(dynamic key, T value, {String? boxName}) async {
+    final box = boxName != null ? await openBox(boxName) : defaultBox;
+    await box.put(key, value);
+  }
+
+  T? get<T>(dynamic key, {T? defaultValue, String? boxName}) {
+    final box = boxName != null ? getBox(boxName) : defaultBox;
+    return box.get(key, defaultValue: defaultValue) as T?;
+  }
+
+  Future<void> delete(dynamic key, {String? boxName}) async {
+    final box = boxName != null ? await openBox(boxName) : defaultBox;
+    await box.delete(key);
+  }
+
+  bool containsKey(dynamic key, {String? boxName}) {
+    final box = boxName != null ? getBox(boxName) : defaultBox;
+    return box.containsKey(key);
+  }
+
+  List<T> getAll<T>({String? boxName}) {
+    final box = boxName != null ? getBox(boxName) : defaultBox;
+    return box.values.cast<T>().toList();
+  }
+
+  Map<dynamic, dynamic> toMap({String? boxName}) {
+    final box = boxName != null ? getBox(boxName) : defaultBox;
+    return box.toMap();
+  }
+
+  Future<void> clear({String? boxName}) async {
+    final box = boxName != null ? await openBox(boxName) : defaultBox;
+    await box.clear();
+  }
+
+  Future<void> closeBox(String boxName) async {
+    if (Hive.isBoxOpen(boxName)) {
+      await Hive.box(boxName).close();
+    }
+  }
+
+  Future<void> closeAll() async {
+    await Hive.close();
+  }
+
+  ValueListenable<Box<T>> listenable<T>({String? boxName, List<dynamic>? keys}) {
+    final box = getBox<T>(boxName ?? defaultBoxName);
+    return box.listenable(keys: keys);
+  }
+}
+`;
+        fs.writeFileSync(hiveServicePath, hiveServiceTemplate);
+    }
+}
+exports.generateHiveFiles = generateHiveFiles;
 function generateThemeFiles(rootPath) {
     const themeDir = path.join(rootPath, 'lib', 'core', 'theme');
     fs.mkdirSync(themeDir, { recursive: true });
@@ -4987,6 +7230,114 @@ function updateMainDartForTheme(rootPath) {
     }
     fs.writeFileSync(mainPath, content);
 }
+function updateMainDartForHive(rootPath, boxNames = []) {
+    const mainPath = path.join(rootPath, 'lib', 'main.dart');
+    if (!fs.existsSync(mainPath))
+        return;
+    let content = fs.readFileSync(mainPath, 'utf8');
+    // Add imports
+    const hiveImports = "import 'package:hive_flutter/hive_flutter.dart';\nimport 'core/services/hive_service.dart';";
+    if (!content.includes('hive_flutter.dart')) {
+        content = `${hiveImports}\n` + content;
+    }
+    if (!content.includes('Hive.initFlutter()') && !content.includes('HiveService().init()')) {
+        const initSnippet = `  await Hive.initFlutter();\n  await HiveService().init();`;
+        // Make sure main is async
+        if (content.includes('void main() {')) {
+            content = content.replace('void main() {', 'void main() async {');
+        }
+        if (content.includes('WidgetsFlutterBinding.ensureInitialized();')) {
+            content = content.replace('WidgetsFlutterBinding.ensureInitialized();', `WidgetsFlutterBinding.ensureInitialized();\n${initSnippet}`);
+        }
+        else if (content.includes('void main() async {')) {
+            content = content.replace('void main() async {', `void main() async {\n  WidgetsFlutterBinding.ensureInitialized();\n${initSnippet}`);
+        }
+    }
+    // Pre-open boxes if specified
+    if (boxNames && boxNames.length > 0) {
+        for (const boxName of boxNames) {
+            if (!content.includes(`'${boxName}'`) && !content.includes(`"${boxName}"`)) {
+                const boxSnippet = `  await HiveService().openBox('${boxName}');`;
+                if (content.includes('await HiveService().init();')) {
+                    content = content.replace('await HiveService().init();', `await HiveService().init();\n${boxSnippet}`);
+                }
+                else if (content.includes('await Hive.initFlutter();')) {
+                    content = content.replace('await Hive.initFlutter();', `await Hive.initFlutter();\n${boxSnippet}`);
+                }
+            }
+        }
+    }
+    fs.writeFileSync(mainPath, content);
+}
+exports.updateMainDartForHive = updateMainDartForHive;
+function ensureHiveServiceInDi(rootPath) {
+    const diPath = path.join(rootPath, 'lib', 'core', 'di', 'injection.dart');
+    if (!fs.existsSync(diPath))
+        return;
+    const packageName = getPackageName(rootPath);
+    let content = fs.readFileSync(diPath, 'utf8');
+    if (!content.includes('registerLazySingleton<HiveService>') && !content.includes('registerSingleton<HiveService>')) {
+        const importHiveService = `import 'package:${packageName}/core/services/hive_service.dart';\n`;
+        if (!content.includes('core/services/hive_service.dart')) {
+            content = importHiveService + content;
+        }
+        const regSnippet = `  if (!getIt.isRegistered<HiveService>()) {\n    getIt.registerLazySingleton<HiveService>(() => HiveService());\n  }\n`;
+        if (content.includes('void configureDependencies() {')) {
+            content = content.replace('void configureDependencies() {', `void configureDependencies() {\n${regSnippet}`);
+        }
+        else {
+            const tag = '// Features register tag (DO NOT REMOVE)';
+            if (content.includes(tag)) {
+                content = content.replace(tag, `${regSnippet}  ${tag}`);
+            }
+            else if (content.includes('getIt.register')) {
+                content = content.replace(/(getIt\.register[^\n]+)/, `${regSnippet}  $1`);
+            }
+        }
+        fs.writeFileSync(diPath, content);
+    }
+}
+exports.ensureHiveServiceInDi = ensureHiveServiceInDi;
+function ensureBuildYamlForExplicitToJson(rootPath) {
+    if (!fs.existsSync(rootPath)) {
+        fs.mkdirSync(rootPath, { recursive: true });
+    }
+    const buildYamlPath = path.join(rootPath, 'build.yaml');
+    if (!fs.existsSync(buildYamlPath)) {
+        fs.writeFileSync(buildYamlPath, `targets:
+  $default:
+    builders:
+      json_serializable:
+        options:
+          explicit_to_json: true
+`);
+    }
+    else {
+        let content = fs.readFileSync(buildYamlPath, 'utf8');
+        if (!content.includes('explicit_to_json')) {
+            if (content.includes('json_serializable:')) {
+                content = content.replace('json_serializable:', 'json_serializable:\n        options:\n          explicit_to_json: true');
+            }
+            else {
+                content += `\ntargets:\n  $default:\n    builders:\n      json_serializable:\n        options:\n          explicit_to_json: true\n`;
+            }
+            fs.writeFileSync(buildYamlPath, content);
+        }
+    }
+}
+exports.ensureBuildYamlForExplicitToJson = ensureBuildYamlForExplicitToJson;
+async function ensureHiveEnvironment(rootPath, boxNames = []) {
+    ensureBuildYamlForExplicitToJson(rootPath);
+    const pubspecModified = configurePubspecForHive(rootPath);
+    if (pubspecModified) {
+        await runPubAdd('hive hive_flutter', rootPath);
+    }
+    generateHiveFiles(rootPath);
+    updateMainDartForHive(rootPath, boxNames);
+    ensureHiveServiceInDi(rootPath);
+    return true;
+}
+exports.ensureHiveEnvironment = ensureHiveEnvironment;
 function updateDioForSslPinning(rootPath) {
     const dioPath = path.join(rootPath, 'lib', 'core', 'network', 'dio_configuration.dart');
     if (!fs.existsSync(dioPath))
@@ -5154,15 +7505,24 @@ if (keystorePropertiesFile.exists()) {
 exports.configureAndroidSigning = configureAndroidSigning;
 async function runBuildRunner(rootPath) {
     return new Promise((resolve) => {
-        (0, child_process_1.exec)('dart run build_runner build', { cwd: rootPath, env: getExtendedEnv() }, (err, stdout, stderr) => {
+        (0, child_process_1.exec)('dart run build_runner build --delete-conflicting-outputs', { cwd: rootPath, env: getExtendedEnv() }, (err, stdout, stderr) => {
             if (err) {
-                console.error(`Build runner error: ${stderr || err.message}`);
-                vscode.window.showWarningMessage(`Build Runner completed with warnings/errors. You can run 'dart run build_runner build' in terminal if needed.`);
+                // Try fallback to flutter pub run
+                (0, child_process_1.exec)('flutter pub run build_runner build --delete-conflicting-outputs', { cwd: rootPath, env: getExtendedEnv() }, (err2, stdout2, stderr2) => {
+                    if (err2) {
+                        console.error(`Build runner error: ${stderr2 || err2.message}`);
+                        vscode.window.showWarningMessage(`Build runner did not complete automatically. Run 'dart run build_runner build --delete-conflicting-outputs' in terminal.`);
+                    }
+                    else {
+                        console.log(`Build runner finished successfully: ${stdout2}`);
+                    }
+                    resolve();
+                });
             }
             else {
                 console.log(`Build runner finished successfully: ${stdout}`);
+                resolve();
             }
-            resolve();
         });
     });
 }
@@ -5437,12 +7797,12 @@ void main() {
 exports.generateFlavorFiles = generateFlavorFiles;
 function configureAndroidFlavors(rootPath) {
     const ktsPath = path.join(rootPath, 'android', 'app', 'build.gradle.kts');
-    if (!fs.existsSync(ktsPath))
-        return;
-    let content = fs.readFileSync(ktsPath, 'utf8');
-    if (content.includes('productFlavors'))
-        return;
-    const flavorsBlock = `
+    const groovyPath = path.join(rootPath, 'android', 'app', 'build.gradle');
+    if (fs.existsSync(ktsPath)) {
+        let content = fs.readFileSync(ktsPath, 'utf8');
+        if (content.includes('productFlavors'))
+            return;
+        const flavorsBlock = `
     flavorDimensions += "env"
     productFlavors {
         create("dev") {
@@ -5463,11 +7823,44 @@ function configureAndroidFlavors(rootPath) {
         }
     }
 `;
-    const androidIndex = content.indexOf('android {');
-    if (androidIndex !== -1) {
-        const nextBrace = content.indexOf('\n', androidIndex);
-        content = content.substring(0, nextBrace + 1) + flavorsBlock + content.substring(nextBrace + 1);
-        fs.writeFileSync(ktsPath, content);
+        const androidIndex = content.indexOf('android {');
+        if (androidIndex !== -1) {
+            const nextBrace = content.indexOf('\n', androidIndex);
+            content = content.substring(0, nextBrace + 1) + flavorsBlock + content.substring(nextBrace + 1);
+            fs.writeFileSync(ktsPath, content);
+        }
+    }
+    else if (fs.existsSync(groovyPath)) {
+        let content = fs.readFileSync(groovyPath, 'utf8');
+        if (content.includes('productFlavors'))
+            return;
+        const flavorsBlock = `
+    flavorDimensions "env"
+    productFlavors {
+        dev {
+            dimension "env"
+            applicationIdSuffix ".dev"
+            versionNameSuffix "-dev"
+            resValue "string", "app_name", "Flutter Config App (Dev)"
+        }
+        staging {
+            dimension "env"
+            applicationIdSuffix ".staging"
+            versionNameSuffix "-staging"
+            resValue "string", "app_name", "Flutter Config App (Staging)"
+        }
+        prod {
+            dimension "env"
+            resValue "string", "app_name", "Flutter Config App"
+        }
+    }
+`;
+        const androidIndex = content.indexOf('android {');
+        if (androidIndex !== -1) {
+            const nextBrace = content.indexOf('\n', androidIndex);
+            content = content.substring(0, nextBrace + 1) + flavorsBlock + content.substring(nextBrace + 1);
+            fs.writeFileSync(groovyPath, content);
+        }
     }
 }
 exports.configureAndroidFlavors = configureAndroidFlavors;
@@ -5773,6 +8166,7 @@ class ${pascal}PaginationController extends ChangeNotifier {
     // 3. Page with infinite scroll + pull-to-refresh
     const pagePath = path.join(pagesDir, `${name}_list_page.dart`);
     fs.writeFileSync(pagePath, `import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:provider/provider.dart';
 import 'package:${packageName}/core/di/injection.dart';
 import '../pagination/${name}_pagination_controller.dart';
@@ -6106,6 +8500,32 @@ ${buildFlutterConfigLintBlock(architecture, stateManagement)}
     fs.writeFileSync(analysisPath, content);
 }
 exports.generateAnalysisOptions = generateAnalysisOptions;
+function configurePubspecForHive(rootPath) {
+    const pubspecPath = path.join(rootPath, 'pubspec.yaml');
+    if (!fs.existsSync(pubspecPath))
+        return false;
+    let content = fs.readFileSync(pubspecPath, 'utf8');
+    let modified = false;
+    const depTag = 'dependencies:';
+    if (content.includes(depTag)) {
+        let depsToAdd = '';
+        if (!/^\s*hive\s*:/m.test(content)) {
+            depsToAdd += '\n  hive: ^2.2.3';
+        }
+        if (!/^\s*hive_flutter\s*:/m.test(content)) {
+            depsToAdd += '\n  hive_flutter: ^1.1.0';
+        }
+        if (depsToAdd) {
+            content = content.replace(depTag, depTag + depsToAdd);
+            modified = true;
+        }
+    }
+    if (modified) {
+        fs.writeFileSync(pubspecPath, content);
+    }
+    return modified;
+}
+exports.configurePubspecForHive = configurePubspecForHive;
 function configurePubspecForLints(rootPath, addFlutterLints = true) {
     const pubspecPath = path.join(rootPath, 'pubspec.yaml');
     if (!fs.existsSync(pubspecPath))

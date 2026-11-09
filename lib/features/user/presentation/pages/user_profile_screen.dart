@@ -5,6 +5,7 @@ import '../bloc/user_event.dart';
 import '../bloc/user_state.dart';
 
 class UserProfileScreen extends StatelessWidget {
+  static const route = '/user';
   const UserProfileScreen({super.key});
 
   @override

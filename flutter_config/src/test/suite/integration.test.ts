@@ -30,6 +30,7 @@ suite('Integration Tests', () => {
             'flutter-config.initNotifications',
             'flutter-config.initConnectivity',
             'flutter-config.initSecurity',
+            'flutter-config.initHive',
             'flutter-config.initTheme',
             'flutter-config.generateSignedAppBundle',
             'flutter-config.initTests',

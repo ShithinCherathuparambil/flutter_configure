@@ -1,6 +1,9 @@
 import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
+
+declare var suite: any;
+declare var test: any;
 import { 
     toSnakeCase, toPascalCase, toCamelCase, parseJsonToModel, getPackageName, 
     ModelProperty, FeatureModel, isInjectableEnabled, findProjectRoot, 
@@ -77,7 +80,7 @@ suite('Unit Tests', () => {
 
         const metaProp = props.find((p: ModelProperty) => p.name === 'metadata');
         assert.ok(metaProp);
-        assert.strictEqual(metaProp!.type, 'Map<String, dynamic>');
+        assert.strictEqual(metaProp!.type, 'ProductCardMetadataModel?');
     });
 
     test('parseJsonToModel returns default fields for empty or invalid JSON', () => {

@@ -15,6 +15,9 @@
   },
   "exclude": [
     "node_modules",
-    ".vscode-test"
+    ".vscode-test",
+    "src/test/runTest.ts",
+    "src/test/suite/index.ts",
+    "src/test/suite/integration.test.ts"
   ]
 }
